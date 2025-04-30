@@ -20,7 +20,7 @@ except ImportError:
     os.system('pip install opencv-python-headless==4.5.5.64')
 
 # 🔹 Hugging Face 模型下載網址
-MODEL_URL = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
+MODEL_URL = "https://huggingface.co/wuwuwu123123/deepfake/resolve/main/deepfake_cnn_model.h5"
 
 @st.cache_resource
 def download_model():
