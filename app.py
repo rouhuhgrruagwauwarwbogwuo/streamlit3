@@ -8,8 +8,8 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model, Sequential
 from tensorflow.keras.preprocessing import image
-from tensorflow.keras.applications import ResNet50
-from tensorflow.keras.applications.resnet50 import preprocess_input
+from tensorflow.keras.applications import EfficientNetB0
+from tensorflow.keras.applications.efficientnet import preprocess_input
 from tensorflow.keras.layers import Dense
 
 # 安裝 OpenCV 頭部版本的安全性處理
@@ -48,12 +48,12 @@ except Exception as e:
     st.error(f"❌ 模型載入失敗: {e}")
     st.stop()
 
-resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
-resnet_classifier = Sequential([
-    resnet_model,
+efficientnet_model = EfficientNetB0(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
+efficientnet_classifier = Sequential([
+    efficientnet_model,
     Dense(1, activation='sigmoid')
 ])
-resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+efficientnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
 # 🔧 改進預處理：CLAHE + 對比 + 銳化
 
@@ -68,13 +68,13 @@ def enhance_image(img):
 def preprocess_for_models(img):
     img = enhance_image(img)
     img_resized = cv2.resize(img, (256, 256))
-    resnet_input = preprocess_input(np.expand_dims(img_resized, axis=0))
+    efficientnet_input = preprocess_input(np.expand_dims(img_resized, axis=0))
     gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
     clahe_rgb = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2RGB)
     custom_input = np.expand_dims(clahe_rgb / 255.0, axis=0)
-    return resnet_input, custom_input, img_resized
+    return efficientnet_input, custom_input, img_resized
 
 # 🔁 後處理平滑：移動平均分數
 
@@ -85,10 +85,10 @@ def smooth_predictions(pred_list, window_size=5):
 
 # 📊 信心視覺化
 
-def plot_confidence(resnet_conf, custom_conf, combined_conf):
+def plot_confidence(eff_conf, custom_conf, combined_conf):
     fig, ax = plt.subplots()
-    models = ['ResNet50', 'Custom CNN', 'Combined']
-    confs = [resnet_conf, custom_conf, combined_conf]
+    models = ['EfficientNetB0', 'Custom CNN', 'Combined']
+    confs = [eff_conf, custom_conf, combined_conf]
     ax.bar(models, confs, color=['blue', 'green', 'purple'])
     ax.set_ylim(0, 1)
     ax.set_ylabel('Confidence')
@@ -99,14 +99,14 @@ def plot_confidence(resnet_conf, custom_conf, combined_conf):
 def process_image(file_bytes):
     try:
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        resnet_input, custom_input, display_img = preprocess_for_models(img)
-        resnet_pred = resnet_classifier.predict(resnet_input)[0][0]
+        efficientnet_input, custom_input, display_img = preprocess_for_models(img)
+        eff_pred = efficientnet_classifier.predict(efficientnet_input)[0][0]
         custom_pred = custom_model.predict(custom_input)[0][0]
-        combined_pred = (resnet_pred + custom_pred) / 2
+        combined_pred = (eff_pred + custom_pred) / 2
         label = "Deepfake" if combined_pred > 0.5 else "Real"
         confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
         st.image(img, caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
-        plot_confidence(resnet_pred, custom_pred, combined_pred)
+        plot_confidence(eff_pred, custom_pred, combined_pred)
     except Exception as e:
         st.error(f"❌ 圖片處理錯誤: {e}")
 
@@ -126,7 +126,7 @@ def process_video_and_generate_result(video_file):
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         st.write(f"影片總幀數: {total_frames}")
-        
+
         frame_preds = []
         frame_count = 0
         while cap.isOpened():
@@ -136,16 +136,15 @@ def process_video_and_generate_result(video_file):
                 break
 
             frame_count += 1
-            if frame_count % 10 == 0:  # 每 10 幀處理一次
+            if frame_count % 10 == 0:
                 try:
-                    resnet_input, custom_input, display_img = preprocess_for_models(frame)
-                    resnet_pred = resnet_classifier.predict(resnet_input)[0][0]
+                    efficientnet_input, custom_input, display_img = preprocess_for_models(frame)
+                    eff_pred = efficientnet_classifier.predict(efficientnet_input)[0][0]
                     custom_pred = custom_model.predict(custom_input)[0][0]
-                    combined_pred = (resnet_pred + custom_pred) / 2
+                    combined_pred = (eff_pred + custom_pred) / 2
                     label = "Deepfake" if combined_pred > 0.5 else "Real"
                     confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
 
-                    # 顯示圖片並在圖片上加上標籤
                     font = cv2.FONT_HERSHEY_SIMPLEX
                     cv2.putText(display_img, f"{label} ({confidence:.2%})", (10, 30),
                                 font, 1, (0, 255, 0), 2, cv2.LINE_AA)
@@ -158,11 +157,8 @@ def process_video_and_generate_result(video_file):
                     break
 
         cap.release()
-
-        # 顯示平滑後的信心圖
         smoothed = smooth_predictions(frame_preds)
         st.line_chart(smoothed)
-
         st.success("🎉 偵測完成！")
     except Exception as e:
         st.error(f"❌ 影片處理錯誤: {e}")
