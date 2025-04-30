@@ -11,7 +11,6 @@ from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications import ResNet50
 from tensorflow.keras.applications.resnet50 import preprocess_input
 from tensorflow.keras.layers import Dense
-from huggingface_hub import hf_hub_download  # 使用 Hugging Face API 下載模型
 
 # 安裝 OpenCV 頭部版本的安全性處理
 try:
@@ -21,15 +20,25 @@ except ImportError:
     os.system('pip install opencv-python-headless==4.5.5.64')
 
 # 🔹 Hugging Face 模型下載網址
-MODEL_REPO = "wuwuwu123123/deepfakemodel2"
-MODEL_FILENAME = "deepfake_cnn_model.h5"
+MODEL_URL = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
 
 @st.cache_resource
 def download_model():
-    model_path = hf_hub_download(
-        repo_id=MODEL_REPO,
-        filename=MODEL_FILENAME
-    )
+    model_path = os.path.join(tempfile.gettempdir(), "deepfake_cnn_model.h5")
+    if not os.path.exists(model_path):
+        response = requests.get(MODEL_URL)
+        if response.status_code == 200:
+            with open(model_path, "wb") as f:
+                f.write(response.content)
+        else:
+            st.error("❌ 模型下載失敗，請確認 Hugging Face 模型網址是否正確。")
+            raise Exception("模型下載失敗。")
+    try:
+        with h5py.File(model_path, 'r') as f:
+            pass
+    except OSError:
+        st.error("❌ 模型檔案無法讀取，可能是損壞或格式錯誤。")
+        raise
     return load_model(model_path)
 
 # 載入模型
