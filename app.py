@@ -2,10 +2,11 @@ import os
 import numpy as np
 import cv2
 import tempfile
-import requests
 import h5py
+import requests
 import streamlit as st
 import matplotlib.pyplot as plt
+from huggingface_hub import hf_hub_download
 from tensorflow.keras.models import load_model, Sequential
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications import ResNet50
@@ -19,27 +20,20 @@ except ImportError:
     st.error("❌ 未安裝 OpenCV，正在嘗試安裝 opencv-python-headless...")
     os.system('pip install opencv-python-headless==4.5.5.64')
 
-# 🔹 Hugging Face 模型下載網址
-MODEL_URL = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
-
+# ✅ 使用 Hugging Face 的 hf_hub_download 函數
 @st.cache_resource
 def download_model():
-    model_path = os.path.join(tempfile.gettempdir(), "deepfake_cnn_model.h5")
-    if not os.path.exists(model_path):
-        response = requests.get(MODEL_URL)
-        if response.status_code == 200:
-            with open(model_path, "wb") as f:
-                f.write(response.content)
-        else:
-            st.error("❌ 模型下載失敗，請確認 Hugging Face 模型網址是否正確。")
-            raise Exception("模型下載失敗。")
     try:
+        model_path = hf_hub_download(
+            repo_id="wuwuwu123123/deepfakemodel2",  # 替換成你的 repo ID
+            filename="deepfake_cnn_model.h5"         # 模型檔名
+        )
         with h5py.File(model_path, 'r') as f:
             pass
-    except OSError:
-        st.error("❌ 模型檔案無法讀取，可能是損壞或格式錯誤。")
-        raise
-    return load_model(model_path)
+        return load_model(model_path)
+    except Exception as e:
+        st.error("❌ 模型下載或載入失敗，請確認 repo_id 與 filename 正確無誤。")
+        raise e
 
 # 載入模型
 try:
@@ -55,8 +49,7 @@ resnet_classifier = Sequential([
 ])
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
-# 🔧 改進預處理：CLAHE + 對比 + 銳化
-
+# 圖像增強處理
 def enhance_image(img):
     img_yuv = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
     img_yuv[:, :, 0] = cv2.equalizeHist(img_yuv[:, :, 0])
@@ -76,14 +69,10 @@ def preprocess_for_models(img):
     custom_input = np.expand_dims(clahe_rgb / 255.0, axis=0)
     return resnet_input, custom_input, img_resized
 
-# 🔁 後處理平滑：移動平均分數
-
 def smooth_predictions(pred_list, window_size=5):
     if len(pred_list) < window_size:
         return pred_list
     return np.convolve(pred_list, np.ones(window_size)/window_size, mode='valid')
-
-# 📊 信心視覺化
 
 def plot_confidence(resnet_conf, custom_conf, combined_conf):
     fig, ax = plt.subplots()
@@ -93,8 +82,6 @@ def plot_confidence(resnet_conf, custom_conf, combined_conf):
     ax.set_ylim(0, 1)
     ax.set_ylabel('Confidence')
     st.pyplot(fig)
-
-# 🔹 圖片處理邏輯
 
 def process_image(file_bytes):
     try:
@@ -109,8 +96,6 @@ def process_image(file_bytes):
         plot_confidence(resnet_pred, custom_pred, combined_pred)
     except Exception as e:
         st.error(f"❌ 圖片處理錯誤: {e}")
-
-# 🔹 影片處理邏輯：每 10 幀處理一次並顯示圖片
 
 def process_video_and_generate_result(video_file):
     try:
@@ -132,11 +117,10 @@ def process_video_and_generate_result(video_file):
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
-                st.error("❌ 影片幀讀取失敗。")
                 break
 
             frame_count += 1
-            if frame_count % 10 == 0:  # 每 10 幀處理一次
+            if frame_count % 10 == 0:
                 try:
                     resnet_input, custom_input, display_img = preprocess_for_models(frame)
                     resnet_pred = resnet_classifier.predict(resnet_input)[0][0]
@@ -145,7 +129,6 @@ def process_video_and_generate_result(video_file):
                     label = "Deepfake" if combined_pred > 0.5 else "Real"
                     confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
 
-                    # 顯示圖片並在圖片上加上標籤
                     font = cv2.FONT_HERSHEY_SIMPLEX
                     cv2.putText(display_img, f"{label} ({confidence:.2%})", (10, 30),
                                 font, 1, (0, 255, 0), 2, cv2.LINE_AA)
@@ -158,20 +141,16 @@ def process_video_and_generate_result(video_file):
                     break
 
         cap.release()
-
-        # 顯示平滑後的信心圖
         smoothed = smooth_predictions(frame_preds)
         st.line_chart(smoothed)
-
         st.success("🎉 偵測完成！")
     except Exception as e:
         st.error(f"❌ 影片處理錯誤: {e}")
         return None
 
-# 🔹 Streamlit UI
+# Streamlit UI
 st.title("🕵️ Deepfake 偵測 App")
 option = st.radio("請選擇檔案類型：", ("圖片", "影片"))
-
 uploaded_file = st.file_uploader("📤 上傳檔案", type=["jpg", "jpeg", "png", "mp4", "mov"])
 
 if uploaded_file is not None:
