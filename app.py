@@ -161,26 +161,23 @@ def process_video_and_generate_result(video_file):
                     break
 
         cap.release()
-        smoothed = smooth_predictions(frame_preds)
-        st.line_chart(smoothed)
+        
+        if len(frame_preds) > 0:
+            smoothed = smooth_predictions(frame_preds)
+            st.line_chart(smoothed)
+        else:
+            st.warning("❌ 沒有有效的幀預測結果。")
+        
         st.success("🎉 偵測完成！")
     except Exception as e:
         st.error(f"❌ 影片處理錯誤: {e}")
         return None
 
-# 假設點擊「叉叉」終止時設定 stop_processing 為 True
-if 'stop_processing' not in st.session_state:
-    st.session_state.stop_processing = False
-
 # 🔹 Streamlit UI
 st.title("🕵️ Deepfake 偵測 App")
 option = st.radio("請選擇檔案類型：", ("圖片", "影片"))
 
-# 根據選擇的檔案類型顯示上傳按鈕
-if option == "圖片":
-    uploaded_file = st.file_uploader("📤 上傳圖片", type=["jpg", "jpeg", "png"])
-elif option == "影片":
-    uploaded_file = st.file_uploader("📤 上傳影片", type=["mp4", "mov"])
+uploaded_file = st.file_uploader("📤 上傳檔案", type=["jpg", "jpeg", "png", "mp4", "mov"])
 
 if uploaded_file is not None:
     try:
@@ -192,6 +189,8 @@ if uploaded_file is not None:
             processed_video_path = process_video_and_generate_result(uploaded_file)
             if processed_video_path:
                 st.video(processed_video_path)
+            else:
+                st.error("❌ 無法處理影片。")
         else:
             st.warning("請確認上傳的檔案類型與選擇一致。")
     except Exception as e:
