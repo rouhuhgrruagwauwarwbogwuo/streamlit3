@@ -7,7 +7,6 @@ import h5py
 import streamlit as st
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model, Sequential
-from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications import EfficientNetB0
 from tensorflow.keras.applications.efficientnet import preprocess_input
 from tensorflow.keras.layers import Dense
@@ -70,16 +69,20 @@ def process_image(file_bytes):
         # 顯示原始圖片
         st.image(img, caption="上傳的原始圖片", use_container_width=True)
 
-        # 如果需要執行預測，可以在此處添加邏輯，但不進行顏色還原或增強處理
-        efficientnet_input, custom_input, display_img = preprocess_for_models(img)
-        eff_pred = efficientnet_classifier.predict(efficientnet_input)[0][0]
+        # 進行預測
+        img_resized = cv2.resize(img, (256, 256))
+        eff_input = preprocess_input(np.expand_dims(img_resized, axis=0))
+        custom_input = np.expand_dims(img_resized / 255.0, axis=0)
+        
+        # 預測
+        eff_pred = efficientnet_classifier.predict(eff_input)[0][0]
         custom_pred = custom_model.predict(custom_input)[0][0]
         combined_pred = (eff_pred + custom_pred) / 2
         label = "Deepfake" if combined_pred > 0.5 else "Real"
         confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
 
         # 顯示預測結果
-        boxed_img = draw_face_box(display_img, label, confidence)
+        boxed_img = draw_face_box(img, label, confidence)
         st.image(boxed_img, caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
         
         plot_confidence(eff_pred, custom_pred, combined_pred)
