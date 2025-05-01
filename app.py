@@ -172,23 +172,15 @@ def process_video_and_generate_result(video_file):
 if 'stop_processing' not in st.session_state:
     st.session_state.stop_processing = False
 
-# 假設上傳的影片處理邏輯
-uploaded_file = st.file_uploader("📤 上傳影片", type=["mp4", "mov"])
-if uploaded_file is not None:
-    st.markdown("### 處理影片中...")
-    processed_video_path = process_video_and_generate_result(uploaded_file)
-    if processed_video_path:
-        st.video(processed_video_path)
-
-# 假設使用者點擊「停止處理」
-if st.button("停止處理"):
-    st.session_state.stop_processing = True
-
 # 🔹 Streamlit UI
 st.title("🕵️ Deepfake 偵測 App")
 option = st.radio("請選擇檔案類型：", ("圖片", "影片"))
 
-uploaded_file = st.file_uploader("📤 上傳檔案", type=["jpg", "jpeg", "png", "mp4", "mov"])
+# 根據選擇的檔案類型顯示上傳按鈕
+if option == "圖片":
+    uploaded_file = st.file_uploader("📤 上傳圖片", type=["jpg", "jpeg", "png"])
+elif option == "影片":
+    uploaded_file = st.file_uploader("📤 上傳影片", type=["mp4", "mov"])
 
 if uploaded_file is not None:
     try:
