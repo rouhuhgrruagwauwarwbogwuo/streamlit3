@@ -51,24 +51,37 @@ efficientnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', me
 
 detector = MTCNN()  # ✅ 初始化 MTCNN 偵測器
 
-# 圖像增強（CLAHE + 銳化）
+# 圖像增強（CLAHE + 銳化 + 去噪）
 def enhance_image(img):
+    # 1. 先進行 CLAHE
     img_yuv = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
     img_yuv[:, :, 0] = cv2.equalizeHist(img_yuv[:, :, 0])
     img_eq = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2BGR)
-    kernel = np.array([[0, -1, 0], [-1, 5,-1], [0, -1, 0]])
+    
+    # 2. 銳化
+    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
     img_sharp = cv2.filter2D(img_eq, -1, kernel)
-    return img_sharp
+
+    # 3. 去噪
+    img_denoised = cv2.fastNlMeansDenoisingColored(img_sharp, None, 10, 10, 7, 21)
+
+    return img_denoised
 
 def preprocess_for_models(img):
-    img = enhance_image(img)
+    img = enhance_image(img)  # 提升畫質
     img_resized = cv2.resize(img, (256, 256))
+
+    # 保留原圖顏色不變的預處理
     efficientnet_input = preprocess_input(np.expand_dims(img_resized, axis=0))
+    
+    # 使用 CLAHE 增強灰度圖像並還原顏色
     gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
     clahe_rgb = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2RGB)
+    
     custom_input = np.expand_dims(clahe_rgb / 255.0, axis=0)
+    
     return efficientnet_input, custom_input, img_resized
 
 def smooth_predictions(pred_list, window_size=5):
