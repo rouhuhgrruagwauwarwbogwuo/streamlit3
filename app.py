@@ -11,15 +11,9 @@ from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications import EfficientNetB0
 from tensorflow.keras.applications.efficientnet import preprocess_input
 from tensorflow.keras.layers import Dense
+from mtcnn.mtcnn import MTCNN  # ✅ 使用 MTCNN
 
-# 安裝 OpenCV 頭部版本的安全性處理
-try:
-    import cv2
-except ImportError:
-    st.error("❌ 未安裝 OpenCV，正在嘗試安裝 opencv-python-headless...")
-    os.system('pip install opencv-python-headless==4.5.5.64')
-
-# 🔹 Hugging Face 模型下載網址
+# Hugging Face 模型下載網址
 MODEL_URL = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
 
 @st.cache_resource
@@ -31,13 +25,13 @@ def download_model():
             with open(model_path, "wb") as f:
                 f.write(response.content)
         else:
-            st.error("❌ 模型下載失敗，請確認 Hugging Face 模型網址是否正確。")
+            st.error("❌ 模型下載失敗。")
             raise Exception("模型下載失敗。")
     try:
         with h5py.File(model_path, 'r') as f:
             pass
     except OSError:
-        st.error("❌ 模型檔案無法讀取，可能是損壞或格式錯誤。")
+        st.error("❌ 模型檔案無法讀取。")
         raise
     return load_model(model_path)
 
@@ -55,8 +49,9 @@ efficientnet_classifier = Sequential([
 ])
 efficientnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
-# 🔧 改進預處理：CLAHE + 對比 + 銳化
+detector = MTCNN()  # ✅ 初始化 MTCNN 偵測器
 
+# 圖像增強（CLAHE + 銳化）
 def enhance_image(img):
     img_yuv = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
     img_yuv[:, :, 0] = cv2.equalizeHist(img_yuv[:, :, 0])
@@ -76,14 +71,10 @@ def preprocess_for_models(img):
     custom_input = np.expand_dims(clahe_rgb / 255.0, axis=0)
     return efficientnet_input, custom_input, img_resized
 
-# 🔁 後處理平滑：移動平均分數
-
 def smooth_predictions(pred_list, window_size=5):
     if len(pred_list) < window_size:
         return pred_list
     return np.convolve(pred_list, np.ones(window_size)/window_size, mode='valid')
-
-# 📊 信心視覺化
 
 def plot_confidence(eff_conf, custom_conf, combined_conf):
     fig, ax = plt.subplots()
@@ -94,7 +85,16 @@ def plot_confidence(eff_conf, custom_conf, combined_conf):
     ax.set_ylabel('Confidence')
     st.pyplot(fig)
 
-# 🔹 圖片處理邏輯
+# ✅ MTCNN 偵測人臉並框住
+def draw_face_box(img, label, confidence):
+    results = detector.detect_faces(img)
+    color = (0, 0, 255) if label == "Deepfake" else (0, 255, 0)
+    for result in results:
+        x, y, w, h = result['box']
+        cv2.rectangle(img, (x, y), (x + w, y + h), color, 3)
+        text = f"{label} ({confidence:.2%})"
+        cv2.putText(img, text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+    return img
 
 def process_image(file_bytes):
     try:
@@ -106,17 +106,11 @@ def process_image(file_bytes):
         label = "Deepfake" if combined_pred > 0.5 else "Real"
         confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
 
-        # 設定框的顏色，Deepfake 用紅色框，Real 用綠色框
-        box_color = (0, 0, 255) if label == "Deepfake" else (0, 255, 0)
-        # 加上框
-        cv2.rectangle(display_img, (10, 10), (display_img.shape[1] - 10, display_img.shape[0] - 10), box_color, 5)
-
-        st.image(display_img, caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
+        boxed_img = draw_face_box(display_img, label, confidence)
+        st.image(boxed_img, caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
         plot_confidence(eff_pred, custom_pred, combined_pred)
     except Exception as e:
         st.error(f"❌ 圖片處理錯誤: {e}")
-
-# 🔹 影片處理邏輯：每 10 幀處理一次並顯示圖片
 
 def process_video_and_generate_result(video_file):
     try:
@@ -127,11 +121,6 @@ def process_video_and_generate_result(video_file):
         if not cap.isOpened():
             st.error("❌ 無法打開影片檔案。")
             return None
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        st.write(f"影片總幀數: {total_frames}")
 
         frame_preds = []
         frame_count = 0
@@ -142,7 +131,6 @@ def process_video_and_generate_result(video_file):
 
             ret, frame = cap.read()
             if not ret:
-                st.error("❌ 影片幀讀取失敗。")
                 break
 
             frame_count += 1
@@ -155,27 +143,22 @@ def process_video_and_generate_result(video_file):
                     label = "Deepfake" if combined_pred > 0.5 else "Real"
                     confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
 
-                    # 設定框的顏色，Deepfake 用紅色框，Real 用綠色框
-                    box_color = (0, 0, 255) if label == "Deepfake" else (0, 255, 0)
-                    # 加上框
-                    cv2.rectangle(display_img, (10, 10), (display_img.shape[1] - 10, display_img.shape[0] - 10), box_color, 5)
-
-                    st.image(display_img, caption=f"幀 {frame_count}: {label} ({confidence:.2%})", use_container_width=True)
+                    boxed_img = draw_face_box(display_img, label, confidence)
+                    st.image(boxed_img, caption=f"幀 {frame_count}: {label} ({confidence:.2%})", use_container_width=True)
 
                     frame_preds.append(combined_pred)
-
                 except Exception as e:
                     st.error(f"處理幀錯誤: {e}")
                     break
 
         cap.release()
-        
-        if len(frame_preds) > 0:
+
+        if frame_preds:
             smoothed = smooth_predictions(frame_preds)
             st.line_chart(smoothed)
         else:
             st.warning("❌ 沒有有效的幀預測結果。")
-        
+
         st.success("🎉 偵測完成！")
     except Exception as e:
         st.error(f"❌ 影片處理錯誤: {e}")
@@ -197,9 +180,7 @@ if uploaded_file is not None:
             processed_video_path = process_video_and_generate_result(uploaded_file)
             if processed_video_path:
                 st.video(processed_video_path)
-            else:
-                st.error("❌ 無法處理影片。")
         else:
             st.warning("請確認上傳的檔案類型與選擇一致。")
-    except Exception as e:   
+    except Exception as e:
         st.error(f"❌ 發生錯誤: {e}")
