@@ -130,6 +130,10 @@ def process_video_and_generate_result(video_file):
         frame_preds = []
         frame_count = 0
         while cap.isOpened():
+            if st.session_state.get('stop_processing', False):
+                st.warning("影片處理已被終止。")
+                break
+
             ret, frame = cap.read()
             if not ret:
                 st.error("❌ 影片幀讀取失敗。")
@@ -157,18 +161,28 @@ def process_video_and_generate_result(video_file):
                     break
 
         cap.release()
-
-        # 新增的檢查：如果沒有獲得任何預測結果，給出警告
-        if len(frame_preds) == 0:
-            st.warning("⚠️ 沒有成功取得任何幀的預測結果，請重新嘗試上傳影片。")
-            return None
-
         smoothed = smooth_predictions(frame_preds)
         st.line_chart(smoothed)
         st.success("🎉 偵測完成！")
     except Exception as e:
         st.error(f"❌ 影片處理錯誤: {e}")
         return None
+
+# 假設點擊「叉叉」終止時設定 stop_processing 為 True
+if 'stop_processing' not in st.session_state:
+    st.session_state.stop_processing = False
+
+# 假設上傳的影片處理邏輯
+uploaded_file = st.file_uploader("📤 上傳影片", type=["mp4", "mov"])
+if uploaded_file is not None:
+    st.markdown("### 處理影片中...")
+    processed_video_path = process_video_and_generate_result(uploaded_file)
+    if processed_video_path:
+        st.video(processed_video_path)
+
+# 假設使用者點擊「停止處理」
+if st.button("停止處理"):
+    st.session_state.stop_processing = True
 
 # 🔹 Streamlit UI
 st.title("🕵️ Deepfake 偵測 App")
@@ -186,8 +200,6 @@ if uploaded_file is not None:
             processed_video_path = process_video_and_generate_result(uploaded_file)
             if processed_video_path:
                 st.video(processed_video_path)
-            else:
-                st.error("❌ 無法處理影片。")
         else:
             st.warning("請確認上傳的檔案類型與選擇一致。")
     except Exception as e:
