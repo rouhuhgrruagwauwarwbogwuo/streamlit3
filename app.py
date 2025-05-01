@@ -6,11 +6,17 @@ import requests
 import h5py
 import streamlit as st
 import matplotlib.pyplot as plt
+import logging
 from tensorflow.keras.models import load_model, Sequential
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications import EfficientNetB0
 from tensorflow.keras.applications.efficientnet import preprocess_input
 from tensorflow.keras.layers import Dense
+
+# 📜 設定錯誤日誌 logging
+log_path = os.path.join(tempfile.gettempdir(), "error_log.txt")
+logging.basicConfig(filename=log_path, level=logging.ERROR,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 # 安裝 OpenCV 頭部版本的安全性處理
 try:
@@ -56,7 +62,6 @@ efficientnet_classifier = Sequential([
 efficientnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
 # 🔧 改進預處理：CLAHE + 對比 + 銳化
-
 def enhance_image(img):
     img_yuv = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
     img_yuv[:, :, 0] = cv2.equalizeHist(img_yuv[:, :, 0])
@@ -76,15 +81,13 @@ def preprocess_for_models(img):
     custom_input = np.expand_dims(clahe_rgb / 255.0, axis=0)
     return efficientnet_input, custom_input, img_resized
 
-# 🔁 後處理平滑：移動平均分數
-
+# 🔁 後處理平滑
 def smooth_predictions(pred_list, window_size=5):
     if len(pred_list) < window_size:
         return pred_list
     return np.convolve(pred_list, np.ones(window_size)/window_size, mode='valid')
 
 # 📊 信心視覺化
-
 def plot_confidence(eff_conf, custom_conf, combined_conf):
     fig, ax = plt.subplots()
     models = ['EfficientNetB0', 'Custom CNN', 'Combined']
@@ -94,8 +97,7 @@ def plot_confidence(eff_conf, custom_conf, combined_conf):
     ax.set_ylabel('Confidence')
     st.pyplot(fig)
 
-# 🔹 圖片處理邏輯
-
+# 圖片處理
 def process_image(file_bytes):
     try:
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
@@ -109,9 +111,9 @@ def process_image(file_bytes):
         plot_confidence(eff_pred, custom_pred, combined_pred)
     except Exception as e:
         st.error(f"❌ 圖片處理錯誤: {e}")
+        logging.error("處理圖片錯誤", exc_info=True)
 
-# 🔹 影片處理邏輯：每 10 幀處理一次並顯示圖片
-
+# 影片處理
 def process_video_and_generate_result(video_file):
     try:
         temp_video_path = os.path.join(tempfile.gettempdir(), "temp_video.mp4")
@@ -121,9 +123,7 @@ def process_video_and_generate_result(video_file):
         if not cap.isOpened():
             st.error("❌ 無法打開影片檔案。")
             return None
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         st.write(f"影片總幀數: {total_frames}")
 
@@ -132,9 +132,7 @@ def process_video_and_generate_result(video_file):
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
-                st.error("❌ 影片幀讀取失敗。")
                 break
-
             frame_count += 1
             if frame_count % 10 == 0:
                 try:
@@ -144,27 +142,26 @@ def process_video_and_generate_result(video_file):
                     combined_pred = (eff_pred + custom_pred) / 2
                     label = "Deepfake" if combined_pred > 0.5 else "Real"
                     confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
-
                     font = cv2.FONT_HERSHEY_SIMPLEX
                     cv2.putText(display_img, f"{label} ({confidence:.2%})", (10, 30),
                                 font, 1, (0, 255, 0), 2, cv2.LINE_AA)
                     st.image(display_img, caption=f"幀 {frame_count}: {label} ({confidence:.2%})", use_container_width=True)
-
                     frame_preds.append(combined_pred)
-
                 except Exception as e:
                     st.error(f"處理幀錯誤: {e}")
+                    logging.error("處理影片幀錯誤", exc_info=True)
                     break
-
         cap.release()
         smoothed = smooth_predictions(frame_preds)
         st.line_chart(smoothed)
         st.success("🎉 偵測完成！")
+        return None
     except Exception as e:
         st.error(f"❌ 影片處理錯誤: {e}")
+        logging.error("處理影片錯誤", exc_info=True)
         return None
 
-# 🔹 Streamlit UI
+# Streamlit UI
 st.title("🕵️ Deepfake 偵測 App")
 option = st.radio("請選擇檔案類型：", ("圖片", "影片"))
 
@@ -181,8 +178,15 @@ if uploaded_file is not None:
             if processed_video_path:
                 st.video(processed_video_path)
             else:
-                st.error("❌ 無法處理影片。")
+                st.info("影片處理完成。")
         else:
             st.warning("請確認上傳的檔案類型與選擇一致。")
     except Exception as e:
-        st.error(f"❌ 發生錯誤: {e}")修改這個
+        st.error("🚨 偵測過程中發生錯誤，請重新上傳或確認檔案格式。")
+        st.exception(e)
+        logging.error("處理上傳檔案時發生錯誤", exc_info=True)
+
+# 錯誤日誌下載按鈕
+if os.path.exists(log_path):
+    with open(log_path, "rb") as f:
+        st.download_button("📄 下載錯誤日誌", f, file_name="error_log.txt", mime="text/plain")
