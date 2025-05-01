@@ -185,4 +185,4 @@ if uploaded_file is not None:
         else:
             st.warning("請確認上傳的檔案類型與選擇一致。")
     except Exception as e:
-        st.error(f"❌ 發生錯誤: {e}")
+        st.error(f"❌ 發生錯誤: {e}")修改這個
