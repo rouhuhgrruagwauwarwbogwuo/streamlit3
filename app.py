@@ -105,33 +105,33 @@ def process_image(file_bytes):
         combined_pred = (eff_pred + custom_pred) / 2
         label = "Deepfake" if combined_pred > 0.5 else "Real"
         confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
-        st.image(img, caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
+
+        # 設定框的顏色，Deepfake 用紅色框，Real 用綠色框
+        box_color = (0, 0, 255) if label == "Deepfake" else (0, 255, 0)
+        # 加上框
+        cv2.rectangle(display_img, (10, 10), (display_img.shape[1] - 10, display_img.shape[0] - 10), box_color, 5)
+
+        st.image(display_img, caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
         plot_confidence(eff_pred, custom_pred, combined_pred)
     except Exception as e:
         st.error(f"❌ 圖片處理錯誤: {e}")
 
-# 🔹 影片處理邏輯：每 10 幀處理一次並顯示圖片並輸出影片
+# 🔹 影片處理邏輯：每 10 幀處理一次並顯示圖片
 
 def process_video_and_generate_result(video_file):
     try:
         temp_video_path = os.path.join(tempfile.gettempdir(), "temp_video.mp4")
         with open(temp_video_path, "wb") as f:
             f.write(video_file.read())
-
         cap = cv2.VideoCapture(temp_video_path)
         if not cap.isOpened():
             st.error("❌ 無法打開影片檔案。")
             return None
-
         fps = cap.get(cv2.CAP_PROP_FPS)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         st.write(f"影片總幀數: {total_frames}")
-
-        output_path = os.path.join(tempfile.gettempdir(), "processed_output.mp4")
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (256, 256))
 
         frame_preds = []
         frame_count = 0
@@ -142,6 +142,7 @@ def process_video_and_generate_result(video_file):
 
             ret, frame = cap.read()
             if not ret:
+                st.error("❌ 影片幀讀取失敗。")
                 break
 
             frame_count += 1
@@ -154,28 +155,28 @@ def process_video_and_generate_result(video_file):
                     label = "Deepfake" if combined_pred > 0.5 else "Real"
                     confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
 
-                    cv2.putText(display_img, f"{label} ({confidence:.2%})", (10, 30),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
-                    out.write(display_img)
+                    # 設定框的顏色，Deepfake 用紅色框，Real 用綠色框
+                    box_color = (0, 0, 255) if label == "Deepfake" else (0, 255, 0)
+                    # 加上框
+                    cv2.rectangle(display_img, (10, 10), (display_img.shape[1] - 10, display_img.shape[0] - 10), box_color, 5)
 
                     st.image(display_img, caption=f"幀 {frame_count}: {label} ({confidence:.2%})", use_container_width=True)
+
                     frame_preds.append(combined_pred)
+
                 except Exception as e:
                     st.error(f"處理幀錯誤: {e}")
                     break
 
         cap.release()
-        out.release()
-
+        
         if len(frame_preds) > 0:
             smoothed = smooth_predictions(frame_preds)
             st.line_chart(smoothed)
         else:
             st.warning("❌ 沒有有效的幀預測結果。")
-
+        
         st.success("🎉 偵測完成！")
-        return output_path
-
     except Exception as e:
         st.error(f"❌ 影片處理錯誤: {e}")
         return None
@@ -195,11 +196,10 @@ if uploaded_file is not None:
             st.markdown("### 處理影片中...")
             processed_video_path = process_video_and_generate_result(uploaded_file)
             if processed_video_path:
-                st.markdown("### 預測後影片結果：")
                 st.video(processed_video_path)
             else:
                 st.error("❌ 無法處理影片。")
         else:
             st.warning("請確認上傳的檔案類型與選擇一致。")
-    except Exception as e:
+    except Exception as e:   
         st.error(f"❌ 發生錯誤: {e}")
