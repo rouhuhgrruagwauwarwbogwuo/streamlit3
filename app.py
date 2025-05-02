@@ -48,7 +48,6 @@ except Exception as e:
     st.error(f"❌ 模型載入失敗: {e}")
     st.stop()
 
-# 加載 ResNet50 預訓練模型
 resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
 resnet_classifier = Sequential([
     resnet_model,
@@ -56,43 +55,50 @@ resnet_classifier = Sequential([
 ])
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
-# 🔧 改進預處理：減少增強過度處理
+# 🔧 改進預處理：CLAHE + 對比 + 銳化
+
 def enhance_image(img):
-    img_yuv = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
-    
+    # 保持原來的顏色格式 (BGR)，不要轉換到其他色彩空間
+    img_bgr = img.copy()
+
     # 調整 CLAHE 強度，減少過度增強
-    clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(8, 8))  # 調整 clipLimit 參數
-    img_yuv[:, :, 0] = clahe.apply(img_yuv[:, :, 0])  # 只對 Y 通道進行增強
-    img_eq = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2BGR)
-    
-    # 更柔和的銳化濾波器
+    clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(8, 8))  # 降低增強強度
+    img_bgr[:, :, 0] = clahe.apply(img_bgr[:, :, 0])  # 只對 B 通道進行增強
+    img_bgr[:, :, 1] = clahe.apply(img_bgr[:, :, 1])  # 只對 G 通道進行增強
+    img_bgr[:, :, 2] = clahe.apply(img_bgr[:, :, 2])  # 只對 R 通道進行增強
+
+    # 銳化處理
     kernel = np.array([[0, -0.5, 0], [-0.5, 3, -0.5], [0, -0.5, 0]])  # 減少銳化強度
-    img_sharp = cv2.filter2D(img_eq, -1, kernel)
+    img_sharp = cv2.filter2D(img_bgr, -1, kernel)
     
-    # 減少過度處理，保持圖像細節
     return img_sharp
 
+
 def preprocess_for_models(img):
-    img = enhance_image(img)  # 圖像增強
+    # 保持圖像顏色
     img_resized = cv2.resize(img, (256, 256))  # 調整大小
+
+    # ResNet 預處理
     resnet_input = preprocess_input(np.expand_dims(img_resized, axis=0))  # ResNet 預處理
+
+    # 自訂 CNN 預處理（使用 CLAHE 增強）
     gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
-    
-    # 減少 CLAHE 預處理強度
     clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(8, 8))  # 減少強度
     enhanced = clahe.apply(gray)
     clahe_rgb = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2RGB)
-    
+
     custom_input = np.expand_dims(clahe_rgb / 255.0, axis=0)  # 自訂 CNN 預處理
     return resnet_input, custom_input, img_resized
 
 # 🔁 後處理平滑：移動平均分數
+
 def smooth_predictions(pred_list, window_size=5):
     if len(pred_list) < window_size:
         return pred_list
     return np.convolve(pred_list, np.ones(window_size)/window_size, mode='valid')
 
 # 📊 信心視覺化
+
 def plot_confidence(resnet_conf, custom_conf, combined_conf):
     fig, ax = plt.subplots()
     models = ['ResNet50', 'Custom CNN', 'Combined']
@@ -103,6 +109,7 @@ def plot_confidence(resnet_conf, custom_conf, combined_conf):
     st.pyplot(fig)
 
 # 🔹 圖片處理邏輯
+
 def process_image(file_bytes):
     try:
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
@@ -118,6 +125,7 @@ def process_image(file_bytes):
         st.error(f"❌ 圖片處理錯誤: {e}")
 
 # 🔹 影片處理邏輯：每 10 幀處理一次並顯示圖片
+
 def process_video_and_generate_result(video_file):
     try:
         temp_video_path = os.path.join(tempfile.gettempdir(), "temp_video.mp4")
