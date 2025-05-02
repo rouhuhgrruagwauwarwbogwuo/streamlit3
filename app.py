@@ -114,12 +114,18 @@ def process_image(file_bytes):
     try:
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         resnet_input, custom_input, display_img = preprocess_for_models(img)
+
+        # 轉換為 RGB 格式以正確顯示
+        display_img_rgb = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
+
         resnet_pred = resnet_classifier.predict(resnet_input)[0][0]
         custom_pred = custom_model.predict(custom_input)[0][0]
         combined_pred = (resnet_pred + custom_pred) / 2
         label = "Deepfake" if combined_pred > 0.5 else "Real"
         confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
-        st.image(img, caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
+
+        # 顯示圖像和預測結果
+        st.image(display_img_rgb, caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
         plot_confidence(resnet_pred, custom_pred, combined_pred)
     except Exception as e:
         st.error(f"❌ 圖片處理錯誤: {e}")
@@ -153,6 +159,10 @@ def process_video_and_generate_result(video_file):
             if frame_count % 10 == 0:  # 每 10 幀處理一次
                 try:
                     resnet_input, custom_input, display_img = preprocess_for_models(frame)
+
+                    # 轉換為 RGB 格式
+                    display_img_rgb = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
+
                     resnet_pred = resnet_classifier.predict(resnet_input)[0][0]
                     custom_pred = custom_model.predict(custom_input)[0][0]
                     combined_pred = (resnet_pred + custom_pred) / 2
@@ -161,9 +171,9 @@ def process_video_and_generate_result(video_file):
 
                     # 顯示圖片並在圖片上加上標籤
                     font = cv2.FONT_HERSHEY_SIMPLEX
-                    cv2.putText(display_img, f"{label} ({confidence:.2%})", (10, 30),
+                    cv2.putText(display_img_rgb, f"{label} ({confidence:.2%})", (10, 30),
                                 font, 1, (0, 255, 0), 2, cv2.LINE_AA)
-                    st.image(display_img, caption=f"幀 {frame_count}: {label} ({confidence:.2%})", use_container_width=True)
+                    st.image(display_img_rgb, caption=f"幀 {frame_count}: {label} ({confidence:.2%})", use_container_width=True)
 
                     frame_preds.append(combined_pred)
 
