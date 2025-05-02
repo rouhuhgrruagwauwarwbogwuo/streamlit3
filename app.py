@@ -1,3 +1,4 @@
+# streamlit_app.py
 import os
 import numpy as np
 import cv2
@@ -12,15 +13,8 @@ from tensorflow.keras.applications import ResNet50
 from tensorflow.keras.applications.resnet50 import preprocess_input
 from tensorflow.keras.layers import Dense
 
-# 安裝 OpenCV 頭部版本的安全性處理
-try:
-    import cv2
-except ImportError:
-    st.error("❌ 未安裝 OpenCV，正在嘗試安裝 opencv-python-headless...")
-    os.system('pip install opencv-python-headless==4.5.5.64')
-
 # 🔹 Hugging Face 模型下載網址
-MODEL_URL = "https://huggingface.co/wuwuwu123123/deepfake/resolve/main/deepfake_cnn_model.h5"
+MODEL_URL = "https://huggingface.co/wuwuwu123123/deepfake3/resolve/main/deepfake_cnn_model.h5"
 
 @st.cache_resource
 def download_model():
@@ -55,50 +49,33 @@ resnet_classifier = Sequential([
 ])
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
-# 🔧 改進預處理：CLAHE + 對比 + 銳化
-
+# 🔧 改進預處理：CLAHE + 銳化（輕度）
 def enhance_image(img):
-    # 保持原來的顏色格式 (BGR)，不要轉換到其他色彩空間
-    img_bgr = img.copy()
-
-    # 調整 CLAHE 強度，減少過度增強
-    clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(8, 8))  # 降低增強強度
-    img_bgr[:, :, 0] = clahe.apply(img_bgr[:, :, 0])  # 只對 B 通道進行增強
-    img_bgr[:, :, 1] = clahe.apply(img_bgr[:, :, 1])  # 只對 G 通道進行增強
-    img_bgr[:, :, 2] = clahe.apply(img_bgr[:, :, 2])  # 只對 R 通道進行增強
-
-    # 銳化處理
-    kernel = np.array([[0, -0.5, 0], [-0.5, 3, -0.5], [0, -0.5, 0]])  # 減少銳化強度
-    img_sharp = cv2.filter2D(img_bgr, -1, kernel)
-    
+    img_yuv = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
+    img_yuv[:, :, 0] = cv2.equalizeHist(img_yuv[:, :, 0])
+    img_eq = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2BGR)
+    kernel = np.array([[0, -0.5, 0], [-0.5, 3, -0.5], [0, -0.5, 0]])
+    img_sharp = cv2.filter2D(img_eq, -1, kernel)
     return img_sharp
 
-
 def preprocess_for_models(img):
-    # 保持圖像顏色
-    img_resized = cv2.resize(img, (256, 256))  # 調整大小
-
-    # ResNet 預處理
-    resnet_input = preprocess_input(np.expand_dims(img_resized, axis=0))  # ResNet 預處理
-
-    # 自訂 CNN 預處理（使用 CLAHE 增強）
+    img = enhance_image(img)
+    img_resized = cv2.resize(img, (256, 256))
+    resnet_input = preprocess_input(np.expand_dims(img_resized.astype(np.float32), axis=0))
     gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(8, 8))  # 減少強度
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
     clahe_rgb = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2RGB)
-
-    custom_input = np.expand_dims(clahe_rgb / 255.0, axis=0)  # 自訂 CNN 預處理
+    custom_input = np.expand_dims(clahe_rgb.astype(np.float32) / 255.0, axis=0)
     return resnet_input, custom_input, img_resized
 
 # 🔁 後處理平滑：移動平均分數
-
 def smooth_predictions(pred_list, window_size=5):
     if len(pred_list) < window_size:
         return pred_list
     return np.convolve(pred_list, np.ones(window_size)/window_size, mode='valid')
 
 # 📊 信心視覺化
-
 def plot_confidence(resnet_conf, custom_conf, combined_conf):
     fig, ax = plt.subplots()
     models = ['ResNet50', 'Custom CNN', 'Combined']
@@ -109,85 +86,85 @@ def plot_confidence(resnet_conf, custom_conf, combined_conf):
     st.pyplot(fig)
 
 # 🔹 圖片處理邏輯
-
 def process_image(file_bytes):
     try:
+        if file_bytes is None or len(file_bytes) == 0:
+            st.warning("未讀取到圖片內容，請重新上傳。")
+            return
+
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        if img is None:
+            st.warning("❌ 無法解碼圖片，可能檔案格式不支援或已損壞。")
+            return
+
         resnet_input, custom_input, display_img = preprocess_for_models(img)
-
-        # 轉換為 RGB 格式以正確顯示
-        display_img_rgb = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
-
         resnet_pred = resnet_classifier.predict(resnet_input)[0][0]
         custom_pred = custom_model.predict(custom_input)[0][0]
         combined_pred = (resnet_pred + custom_pred) / 2
         label = "Deepfake" if combined_pred > 0.5 else "Real"
         confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
 
-        # 顯示圖像和預測結果
-        st.image(display_img_rgb, caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
+        st.image(cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB), caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
         plot_confidence(resnet_pred, custom_pred, combined_pred)
+
+    except IndexError:
+        st.error("❌ 圖片資料處理錯誤，可能已中斷或內容無效。")
     except Exception as e:
         st.error(f"❌ 圖片處理錯誤: {e}")
 
-# 🔹 影片處理邏輯：每 10 幀處理一次並顯示圖片
-
+# 🔹 影片處理邏輯
 def process_video_and_generate_result(video_file):
     try:
+        if video_file is None:
+            st.warning("請上傳影片檔案。")
+            return None
+
         temp_video_path = os.path.join(tempfile.gettempdir(), "temp_video.mp4")
         with open(temp_video_path, "wb") as f:
             f.write(video_file.read())
+
         cap = cv2.VideoCapture(temp_video_path)
         if not cap.isOpened():
             st.error("❌ 無法打開影片檔案。")
             return None
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        st.write(f"影片總幀數: {total_frames}")
-        
+
         frame_preds = []
         frame_count = 0
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
-                st.error("❌ 影片幀讀取失敗。")
                 break
 
             frame_count += 1
-            if frame_count % 10 == 0:  # 每 10 幀處理一次
+            if frame_count % 10 == 0:
                 try:
                     resnet_input, custom_input, display_img = preprocess_for_models(frame)
-
-                    # 轉換為 RGB 格式
-                    display_img_rgb = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
-
                     resnet_pred = resnet_classifier.predict(resnet_input)[0][0]
                     custom_pred = custom_model.predict(custom_input)[0][0]
                     combined_pred = (resnet_pred + custom_pred) / 2
                     label = "Deepfake" if combined_pred > 0.5 else "Real"
                     confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
 
-                    # 顯示圖片並在圖片上加上標籤
-                    font = cv2.FONT_HERSHEY_SIMPLEX
-                    cv2.putText(display_img_rgb, f"{label} ({confidence:.2%})", (10, 30),
-                                font, 1, (0, 255, 0), 2, cv2.LINE_AA)
-                    st.image(display_img_rgb, caption=f"幀 {frame_count}: {label} ({confidence:.2%})", use_container_width=True)
-
+                    cv2.putText(display_img, f"{label} ({confidence:.2%})", (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                    st.image(cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB), caption=f"幀 {frame_count}: {label} ({confidence:.2%})", use_container_width=True)
                     frame_preds.append(combined_pred)
 
+                except IndexError:
+                    st.warning("❌ 幀影像處理出錯，已跳過此幀。")
+                    continue
                 except Exception as e:
-                    st.error(f"處理幀錯誤: {e}")
-                    break
+                    st.warning(f"❌ 幀處理錯誤: {e}")
+                    continue
 
         cap.release()
 
-        # 顯示平滑後的信心圖
-        smoothed = smooth_predictions(frame_preds)
-        st.line_chart(smoothed)
-
-        st.success("🎉 偵測完成！")
+        if frame_preds:
+            smoothed = smooth_predictions(frame_preds)
+            st.line_chart(smoothed)
+            st.success("🎉 偵測完成！")
+        else:
+            st.warning("⚠️ 沒有成功分析的幀數。")
     except Exception as e:
         st.error(f"❌ 影片處理錯誤: {e}")
         return None
@@ -208,8 +185,6 @@ if uploaded_file is not None:
             processed_video_path = process_video_and_generate_result(uploaded_file)
             if processed_video_path:
                 st.video(processed_video_path)
-            else:
-                st.error("❌ 無法處理影片。")
         else:
             st.warning("請確認上傳的檔案類型與選擇一致。")
     except Exception as e:
