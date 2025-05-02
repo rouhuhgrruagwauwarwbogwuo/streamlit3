@@ -48,6 +48,7 @@ except Exception as e:
     st.error(f"❌ 模型載入失敗: {e}")
     st.stop()
 
+# 加載 ResNet50 預訓練模型
 resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
 resnet_classifier = Sequential([
     resnet_model,
@@ -55,13 +56,20 @@ resnet_classifier = Sequential([
 ])
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
-# 🔧 改進預處理：CLAHE + 對比 + 銳化
+# 🔧 改進預處理：減少增強過度處理
 def enhance_image(img):
     img_yuv = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
-    img_yuv[:, :, 0] = cv2.equalizeHist(img_yuv[:, :, 0])
+    
+    # 調整 CLAHE 強度，減少過度增強
+    clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(8, 8))  # 調整 clipLimit 參數
+    img_yuv[:, :, 0] = clahe.apply(img_yuv[:, :, 0])  # 只對 Y 通道進行增強
     img_eq = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2BGR)
-    kernel = np.array([[0, -1, 0], [-1, 5,-1], [0, -1, 0]])  # 銳化
+    
+    # 更柔和的銳化濾波器
+    kernel = np.array([[0, -0.5, 0], [-0.5, 3, -0.5], [0, -0.5, 0]])  # 減少銳化強度
     img_sharp = cv2.filter2D(img_eq, -1, kernel)
+    
+    # 減少過度處理，保持圖像細節
     return img_sharp
 
 def preprocess_for_models(img):
@@ -69,9 +77,12 @@ def preprocess_for_models(img):
     img_resized = cv2.resize(img, (256, 256))  # 調整大小
     resnet_input = preprocess_input(np.expand_dims(img_resized, axis=0))  # ResNet 預處理
     gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))  # CLAHE
+    
+    # 減少 CLAHE 預處理強度
+    clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(8, 8))  # 減少強度
     enhanced = clahe.apply(gray)
     clahe_rgb = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2RGB)
+    
     custom_input = np.expand_dims(clahe_rgb / 255.0, axis=0)  # 自訂 CNN 預處理
     return resnet_input, custom_input, img_resized
 
@@ -101,8 +112,7 @@ def process_image(file_bytes):
         combined_pred = (resnet_pred + custom_pred) / 2
         label = "Deepfake" if combined_pred > 0.5 else "Real"
         confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
-        display_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)  # 確保顯示為 RGB
-        st.image(display_img, caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
+        st.image(img, caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
         plot_confidence(resnet_pred, custom_pred, combined_pred)
     except Exception as e:
         st.error(f"❌ 圖片處理錯誤: {e}")
@@ -145,7 +155,6 @@ def process_video_and_generate_result(video_file):
                     font = cv2.FONT_HERSHEY_SIMPLEX
                     cv2.putText(display_img, f"{label} ({confidence:.2%})", (10, 30),
                                 font, 1, (0, 255, 0), 2, cv2.LINE_AA)
-                    display_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)  # 確保顯示為 RGB
                     st.image(display_img, caption=f"幀 {frame_count}: {label} ({confidence:.2%})", use_container_width=True)
 
                     frame_preds.append(combined_pred)
