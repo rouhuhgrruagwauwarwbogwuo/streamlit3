@@ -42,7 +42,7 @@ face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_fronta
 
 # 銳化濾波器
 def sharpen_image(image):
-    kernel = np.array([[0, -0.25, 0], [-0.25, 2, -0.25], [0, -0.25, 0]])
+    kernel = np.array([[0, -0.1, 0], [-0.1, 1.6, -0.1], [0, -0.1, 0]])  # 減少銳化強度
     sharpened = cv2.filter2D(image, -1, kernel)
     return sharpened
 
@@ -50,19 +50,19 @@ def sharpen_image(image):
 def apply_clahe(image):
     lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))  # 增強程度較輕
+    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))  # 增強程度較輕
     cl = clahe.apply(l)
     limg = cv2.merge((cl, a, b))
     enhanced_image = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
     return enhanced_image
 
 # 增加對比度
-def increase_contrast(image, alpha=1.2, beta=30):  # 減少對比度增加幅度
+def increase_contrast(image, alpha=1.1, beta=10):  # 減少對比度增強幅度
     return cv2.convertScaleAbs(image, alpha=alpha, beta=beta)
 
 # 去噪處理
 def denoise_image(image):
-    return cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
+    return cv2.fastNlMeansDenoisingColored(image, None, 3, 3, 7, 21)  # 減少去噪強度，保留更多細節
 
 # 提高解析度
 def resize_image(image, target_size=(256, 256)):
