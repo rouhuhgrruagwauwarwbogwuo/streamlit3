@@ -39,13 +39,13 @@ def load_custom_model():
 custom_model = load_custom_model()
 
 # 載入 MTCNN 人臉檢測模型
-detector = MTCNN()
+detector = MTCNN(min_face_size=40)
 
 # 圖像預處理：使用 MTCNN 檢測臉部並擷取
 def preprocess_image(img):
     # 使用 MTCNN 檢測人臉
     faces = detector.detect_faces(img)
-    
+
     if len(faces) == 0:
         face_img = img
     else:
@@ -119,10 +119,7 @@ def process_video(video_file):
                 custom_confidence = custom_pred if custom_pred > 0.5 else 1 - custom_pred
 
                 rgb_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
-                st.image(rgb_img, caption=f"第 {frame_count} 幀：ResNet50 預測：{resnet_label} ({resnet_confidence:.2%})", use_container_width=True)
-
-                # 顯示 Custom CNN 預測的結果，使用較小字型
-                st.markdown(f"<small>Custom CNN 預測：{custom_label} ({custom_confidence:.2%})</small>", unsafe_allow_html=True)
+                st.image(rgb_img, caption=f"第 {frame_count} 幀：ResNet50 預測：{resnet_label} ({resnet_confidence:.2%}), Custom CNN 預測：{custom_label} ({custom_confidence:.2%})", use_container_width=True)
             except Exception as e:
                 st.warning(f"處理幀錯誤：{e}")
                 continue
