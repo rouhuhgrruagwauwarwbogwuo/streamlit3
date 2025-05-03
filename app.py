@@ -37,9 +37,6 @@ def load_custom_model():
 
 custom_model = load_custom_model()
 
-# 載入 OpenCV 人臉檢測
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-
 # 圖像預處理：僅進行人臉擷取，並縮放至 256x256
 def preprocess_image(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -56,7 +53,7 @@ def preprocess_image(img):
     # 直接使用 ResNet50 和 Custom CNN 的預處理
     resnet_input = preprocess_input(np.expand_dims(face_img, axis=0).astype(np.float32))
     custom_input = np.expand_dims(face_img / 255.0, axis=0)
-    return face_img, resnet_input, custom_input
+    return img, resnet_input, custom_input
 
 # 圖片偵測
 def process_image(file_bytes):
@@ -73,7 +70,7 @@ def process_image(file_bytes):
     custom_label = "Deepfake" if custom_pred > 0.5 else "Real"
     custom_confidence = custom_pred if custom_pred > 0.5 else 1 - custom_pred
 
-    # 顯示圖片並呈現 ResNet50 和 Custom CNN 的預測
+    # 顯示完整圖片並呈現 ResNet50 的預測
     rgb_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
     st.image(rgb_img, caption=f"ResNet50 預測：{resnet_label} ({resnet_confidence:.2%})", use_container_width=True)
 
