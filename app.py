@@ -45,13 +45,12 @@ def preprocess_image(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
-    if len(faces) == 0:
-        face_img = img
-    else:
-        x, y, w, h = faces[0]
-        face_img = img[y:y+h, x:x+w]
+    # 如果偵測到人臉，將人臉區域框起來
+    for (x, y, w, h) in faces:
+        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)  # 用綠色框住人臉
 
-    face_img = cv2.resize(face_img, (256, 256))
+    # 不會對人臉進行放大或裁剪，保留原圖
+    face_img = cv2.resize(img, (256, 256))  # 可以選擇是否對整張圖進行預處理（縮放等）
 
     # 輕度 CLAHE 處理
     lab = cv2.cvtColor(face_img, cv2.COLOR_BGR2LAB)
@@ -67,12 +66,12 @@ def preprocess_image(img):
 
     resnet_input = preprocess_input(np.expand_dims(sharpened, axis=0).astype(np.float32))
     custom_input = np.expand_dims(sharpened / 255.0, axis=0)
-    return sharpened, resnet_input, custom_input
+    return sharpened, resnet_input, custom_input, img  # 返回原始圖像，以便顯示
 
 # 圖片偵測
 def process_image(file_bytes):
     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-    display_img, resnet_input, custom_input = preprocess_image(img)
+    display_img, resnet_input, custom_input, original_img = preprocess_image(img)
     
     # ResNet50 預測
     resnet_pred = resnet_model.predict(resnet_input)[0][0]
@@ -85,7 +84,7 @@ def process_image(file_bytes):
     custom_confidence = custom_pred if custom_pred > 0.5 else 1 - custom_pred
 
     # 顯示圖片並呈現 ResNet50 和 Custom CNN 的預測
-    rgb_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
+    rgb_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
     st.image(rgb_img, caption=f"ResNet50 預測：{resnet_label} ({resnet_confidence:.2%}), Custom CNN 預測：{custom_label} ({custom_confidence:.2%})", use_container_width=True)
     
     return resnet_label, resnet_confidence, custom_label, custom_confidence
@@ -108,7 +107,7 @@ def process_video(video_file):
         frame_count += 1
         if frame_count % 10 == 0:
             try:
-                display_img, resnet_input, custom_input = preprocess_image(frame)
+                display_img, resnet_input, custom_input, original_img = preprocess_image(frame)
                 
                 # ResNet50 預測
                 resnet_pred = resnet_model.predict(resnet_input)[0][0]
@@ -124,7 +123,7 @@ def process_video(video_file):
                 resnet_confidence = resnet_pred if resnet_pred > 0.5 else 1 - resnet_pred
                 custom_confidence = custom_pred if custom_pred > 0.5 else 1 - custom_pred
 
-                rgb_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
+                rgb_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
                 st.image(rgb_img, caption=f"第 {frame_count} 幀：ResNet50 預測：{resnet_label} ({resnet_confidence:.2%}), Custom CNN 預測：{custom_label} ({custom_confidence:.2%})", use_container_width=True)
             except Exception as e:
                 st.warning(f"處理幀錯誤：{e}")
