@@ -40,73 +40,35 @@ custom_model = load_custom_model()
 # 載入 OpenCV 人臉檢測
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
-# 銳化濾波器
-def sharpen_image(image):
-    kernel = np.array([[0, -0.1, 0], [-0.1, 1.6, -0.1], [0, -0.1, 0]])  # 減少銳化強度
-    sharpened = cv2.filter2D(image, -1, kernel)
-    return sharpened
-
-# CLAHE處理
-def apply_clahe(image):
-    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))  # 增強程度較輕
-    cl = clahe.apply(l)
-    limg = cv2.merge((cl, a, b))
-    enhanced_image = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
-    return enhanced_image
+# 去噪處理（保留細節）
+def denoise_image(image):
+    return cv2.fastNlMeansDenoisingColored(image, None, 3, 3, 7, 21)  # 減少去噪強度，保留更多細節
 
 # 增加對比度
 def increase_contrast(image, alpha=1.1, beta=10):  # 減少對比度增強幅度
     return cv2.convertScaleAbs(image, alpha=alpha, beta=beta)
 
-# 去噪處理
-def denoise_image(image):
-    return cv2.fastNlMeansDenoisingColored(image, None, 3, 3, 7, 21)  # 減少去噪強度，保留更多細節
-
-# 提高解析度
-def resize_image(image, target_size=(256, 256)):
-    return cv2.resize(image, target_size)
-
-# 綜合圖像增強
-def enhance_image(image):
-    # 提高解析度
-    image_resized = resize_image(image)
-    
-    # CLAHE 增強
-    image_clahe = apply_clahe(image_resized)
-    
-    # 銳化處理
-    image_sharpened = sharpen_image(image_clahe)
-    
-    # 增加對比度
-    image_contrast = increase_contrast(image_sharpened)
-    
-    # 去噪處理
-    image_denoised = denoise_image(image_contrast)
-    
-    return image_denoised
-
 # 圖像預處理：使用人臉 + 增強處理
 def preprocess_image(img):
-    # 增強圖像清晰度
-    enhanced_img = enhance_image(img)
-    
+    # 僅去噪和對比度增強
+    image_denoised = denoise_image(img)
+    image_contrast = increase_contrast(image_denoised)
+
     # 人臉檢測
-    gray = cv2.cvtColor(enhanced_img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(image_contrast, cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
     if len(faces) == 0:
-        face_img = enhanced_img
+        face_img = image_contrast
     else:
         x, y, w, h = faces[0]
-        face_img = enhanced_img[y:y+h, x:x+w]
+        face_img = image_contrast[y:y+h, x:x+w]
 
     face_img = cv2.resize(face_img, (256, 256))
 
     resnet_input = preprocess_input(np.expand_dims(face_img, axis=0).astype(np.float32))
     custom_input = np.expand_dims(face_img / 255.0, axis=0)
-    return enhanced_img, resnet_input, custom_input
+    return image_contrast, resnet_input, custom_input
 
 # 圖片偵測
 def process_image(file_bytes):
