@@ -1,84 +1,58 @@
 import streamlit as st
+import os
+import requests
 import numpy as np
-import cv2
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing import image
+import cv2
 from PIL import Image
 
-# --- 圖像預處理方法 ---
-def preprocess_image(img, method="none", target_size=(256, 256)):
-    try:
-        img = img.resize(target_size)
-        img_array = image.img_to_array(img).astype('uint8')
+MODEL_URL = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
+MODEL_PATH = "deepfake_cnn_model.h5"
 
-        if method == "none":
-            pass  # 無處理
+# 嘗試下載模型（若不存在）
+@st.cache_resource
+def download_model():
+    if not os.path.exists(MODEL_PATH):
+        with st.spinner("正在從 Hugging Face 下載模型..."):
+            response = requests.get(MODEL_URL, stream=True)
+            if response.status_code == 200:
+                with open(MODEL_PATH, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+            else:
+                st.error(f"下載模型失敗，HTTP 狀態碼：{response.status_code}")
+                return None
+    return load_model(MODEL_PATH)
 
-        elif method == "clahe":
-            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            enhanced = clahe.apply(gray)
-            img_array = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2RGB)
+# 簡化預處理（不過度處理）
+def preprocess(img: Image.Image, target_size=(256, 256)):
+    img = img.resize(target_size)
+    img_array = image.img_to_array(img)
+    img_array = img_array / 255.0  # 正規化
+    return np.expand_dims(img_array, axis=0)
 
-        elif method == "sharpen":
-            kernel = np.array([[0, -1, 0],
-                               [-1, 5, -1],
-                               [0, -1, 0]])
-            img_array = cv2.filter2D(img_array, -1, kernel)
-
-        elif method == "clahe_sharpen":
-            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            enhanced = clahe.apply(gray)
-            img_array = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2RGB)
-            kernel = np.array([[0, -1, 0],
-                               [-1, 5, -1],
-                               [0, -1, 0]])
-            img_array = cv2.filter2D(img_array, -1, kernel)
-
-        img_array = img_array / 255.0  # normalize
-        return np.expand_dims(img_array, axis=0)
-    except Exception as e:
-        st.error(f"預處理錯誤：{e}")
-        return None
-
-# --- 模型預測 ---
-def predict_image(model, img, method="none"):
-    preprocessed = preprocess_image(img, method)
-    if preprocessed is None:
-        return None, None
-    prediction = model.predict(preprocessed)[0][0]
-    label = "Deepfake" if prediction > 0.5 else "Real"
-    confidence = prediction if prediction > 0.5 else 1 - prediction
+# 預測函數
+def predict(model, img: Image.Image):
+    x = preprocess(img)
+    pred = model.predict(x)[0][0]
+    label = "Deepfake" if pred > 0.5 else "Real"
+    confidence = pred if pred > 0.5 else 1 - pred
     return label, confidence
 
-# --- Streamlit App 主程式 ---
-st.set_page_config(page_title="Deepfake 圖片偵測", layout="centered")
-st.title("🧠 Deepfake 圖片偵測")
+# Streamlit 介面
+st.title("🧠 Deepfake 圖片偵測器")
+st.write("上傳圖片，我們會使用 CNN 模型進行判斷。")
 
-# 模型載入
-@st.cache_resource
-def load_deepfake_model():
-    return load_model("deepfake_cnn_model.h5")
+uploaded_file = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
 
-model = load_deepfake_model()
-
-# 上傳圖片
-uploaded_file = st.file_uploader("請上傳圖片", type=["jpg", "jpeg", "png"])
-
-# 預處理選單
-method = st.selectbox("選擇預處理方式", ["none", "clahe", "sharpen", "clahe_sharpen"], index=0)
-
-if uploaded_file is not None:
+if uploaded_file:
     img = Image.open(uploaded_file).convert("RGB")
+    st.image(img, caption="上傳圖片", use_column_width=True)
 
-    st.image(img, caption="上傳的圖片", use_column_width=True)
-
-    if st.button("🔍 進行預測"):
-        label, confidence = predict_image(model, img, method)
-
-        if label:
-            st.markdown(f"### 🧾 預測結果：`{label}`")
-            st.markdown(f"### ✅ 信心分數：`{confidence:.2%}`")
-        else:
-            st.error("預測失敗，請確認圖片是否正確。")
+    model = download_model()
+    if model:
+        label, confidence = predict(model, img)
+        st.markdown(f"### 預測結果：`{label}`")
+        st.markdown(f"### 信心分數：`{confidence:.2%}`")
