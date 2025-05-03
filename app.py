@@ -40,35 +40,22 @@ custom_model = load_custom_model()
 # 載入 OpenCV 人臉檢測
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
-# 去噪處理（保留細節）
-def denoise_image(image):
-    return cv2.fastNlMeansDenoisingColored(image, None, 3, 3, 7, 21)  # 減少去噪強度，保留更多細節
-
-# 增加對比度
-def increase_contrast(image, alpha=1.1, beta=10):  # 減少對比度增強幅度
-    return cv2.convertScaleAbs(image, alpha=alpha, beta=beta)
-
-# 圖像預處理：使用人臉 + 增強處理
+# 圖像預處理：僅調整大小
 def preprocess_image(img):
-    # 僅去噪和對比度增強
-    image_denoised = denoise_image(img)
-    image_contrast = increase_contrast(image_denoised)
-
-    # 人臉檢測
-    gray = cv2.cvtColor(image_contrast, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
     if len(faces) == 0:
-        face_img = image_contrast
+        face_img = img
     else:
         x, y, w, h = faces[0]
-        face_img = image_contrast[y:y+h, x:x+w]
+        face_img = img[y:y+h, x:x+w]
 
     face_img = cv2.resize(face_img, (256, 256))
 
     resnet_input = preprocess_input(np.expand_dims(face_img, axis=0).astype(np.float32))
     custom_input = np.expand_dims(face_img / 255.0, axis=0)
-    return image_contrast, resnet_input, custom_input
+    return img, resnet_input, custom_input
 
 # 圖片偵測
 def process_image(file_bytes):
