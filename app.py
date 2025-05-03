@@ -40,7 +40,7 @@ custom_model = load_custom_model()
 # 載入 OpenCV 人臉檢測
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
-# 圖像預處理：使用人臉 + CLAHE + 銳化
+# 圖像預處理：僅進行人臉擷取，並縮放至 256x256
 def preprocess_image(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(gray, 1.3, 5)
@@ -53,21 +53,10 @@ def preprocess_image(img):
 
     face_img = cv2.resize(face_img, (256, 256))
 
-    # 輕度 CLAHE 處理
-    lab = cv2.cvtColor(face_img, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
-    cl = clahe.apply(l)
-    limg = cv2.merge((cl, a, b))
-    face_img = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
-
-    # 輕度銳化
-    kernel = np.array([[0, -0.5, 0], [-0.5, 3, -0.5], [0, -0.5, 0]])
-    sharpened = cv2.filter2D(face_img, -1, kernel)
-
-    resnet_input = preprocess_input(np.expand_dims(sharpened, axis=0).astype(np.float32))
-    custom_input = np.expand_dims(sharpened / 255.0, axis=0)
-    return sharpened, resnet_input, custom_input
+    # 直接使用 ResNet50 和 Custom CNN 的預處理
+    resnet_input = preprocess_input(np.expand_dims(face_img, axis=0).astype(np.float32))
+    custom_input = np.expand_dims(face_img / 255.0, axis=0)
+    return face_img, resnet_input, custom_input
 
 # 圖片偵測
 def process_image(file_bytes):
