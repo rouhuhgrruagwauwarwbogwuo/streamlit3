@@ -45,7 +45,7 @@ def preprocess_image(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
-    # 如果偵測到人臉，將人臉區域框起來
+    # 只框住人臉區域但不裁剪
     for (x, y, w, h) in faces:
         cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)  # 用綠色框住人臉
 
@@ -83,7 +83,7 @@ def process_image(file_bytes):
     custom_label = "Deepfake" if custom_pred > 0.5 else "Real"
     custom_confidence = custom_pred if custom_pred > 0.5 else 1 - custom_pred
 
-    # 顯示圖片並呈現 ResNet50 和 Custom CNN 的預測
+    # 顯示完整圖片並呈現 ResNet50 和 Custom CNN 的預測
     rgb_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
     st.image(rgb_img, caption=f"ResNet50 預測：{resnet_label} ({resnet_confidence:.2%}), Custom CNN 預測：{custom_label} ({custom_confidence:.2%})", use_container_width=True)
     
