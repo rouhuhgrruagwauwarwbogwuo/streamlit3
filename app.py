@@ -37,6 +37,9 @@ def load_custom_model():
 
 custom_model = load_custom_model()
 
+# 載入 OpenCV 人臉檢測模型
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
 # 圖像預處理：僅進行人臉擷取，並縮放至 256x256
 def preprocess_image(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
