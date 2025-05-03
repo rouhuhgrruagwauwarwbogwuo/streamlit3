@@ -10,7 +10,6 @@ from tensorflow.keras.models import load_model, Sequential
 from tensorflow.keras.applications import ResNet50
 from tensorflow.keras.applications.resnet50 import preprocess_input
 from tensorflow.keras.layers import Dense
-from mtcnn import MTCNN
 
 # 載入 ResNet50 模型
 @st.cache_resource
@@ -38,19 +37,20 @@ def load_custom_model():
 
 custom_model = load_custom_model()
 
-# 載入 MTCNN 人臉檢測器
-detector = MTCNN()
+# 載入 OpenCV 人臉檢測
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
 # 圖像預處理：使用人臉 + CLAHE + 銳化
 def preprocess_image(img):
-    faces = detector.detect_faces(img)
-    
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+
     if len(faces) == 0:
         face_img = img
     else:
-        x, y, w, h = faces[0]['box']
+        x, y, w, h = faces[0]
         face_img = img[y:y+h, x:x+w]
-    
+
     face_img = cv2.resize(face_img, (256, 256))
 
     # 輕度 CLAHE 處理
@@ -71,50 +71,47 @@ def preprocess_image(img):
 
 # 圖片偵測
 def process_image(file_bytes):
-    try:
-        img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        display_img, resnet_input, custom_input = preprocess_image(img)
-        
-        # ResNet50 預測
-        resnet_pred = resnet_model.predict(resnet_input)[0][0]
-        resnet_label = "Deepfake" if resnet_pred > 0.5 else "Real"
-        resnet_confidence = resnet_pred if resnet_pred > 0.5 else 1 - resnet_pred
-        
-        # Custom CNN 預測（作為參考）
-        custom_pred = custom_model.predict(custom_input)[0][0]
-        custom_label = "Deepfake" if custom_pred > 0.5 else "Real"
-        custom_confidence = custom_pred if custom_pred > 0.5 else 1 - custom_pred
+    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    display_img, resnet_input, custom_input = preprocess_image(img)
+    
+    # ResNet50 預測
+    resnet_pred = resnet_model.predict(resnet_input)[0][0]
+    resnet_label = "Deepfake" if resnet_pred > 0.5 else "Real"
+    resnet_confidence = resnet_pred if resnet_pred > 0.5 else 1 - resnet_pred
+    
+    # Custom CNN 預測（作為參考）
+    custom_pred = custom_model.predict(custom_input)[0][0]
+    custom_label = "Deepfake" if custom_pred > 0.5 else "Real"
+    custom_confidence = custom_pred if custom_pred > 0.5 else 1 - custom_pred
 
-        # 顯示完整圖片並呈現 ResNet50 的預測
-        rgb_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
-        st.image(rgb_img, caption=f"ResNet50 預測：{resnet_label} ({resnet_confidence:.2%})", use_container_width=True)
-
-        # 顯示 Custom CNN 的預測結果，但使用較小的字型
-        st.markdown(f"Custom CNN 預測：{custom_label} ({custom_confidence:.2%})", unsafe_allow_html=True)
-
-        return resnet_label, resnet_confidence, custom_label, custom_confidence
-    except Exception as e:
-        st.error(f"❌ 發生錯誤：{e}")
-        return None
+    # 顯示圖片並呈現 ResNet50 和 Custom CNN 的預測
+    rgb_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
+    st.image(rgb_img, caption=f"ResNet50 預測：{resnet_label} ({resnet_confidence:.2%}), Custom CNN 預測：{custom_label} ({custom_confidence:.2%})", use_container_width=True)
+    
+    return resnet_label, resnet_confidence, custom_label, custom_confidence
 
 # 影片處理（每 10 幀）
 def process_video(video_file):
-    try:
-        temp_video_path = os.path.join(tempfile.gettempdir(), "temp_video.mp4")
-        with open(temp_video_path, "wb") as f:
-            f.write(video_file.read())
+    temp_video_path = os.path.join(tempfile.gettempdir(), "temp_video.mp4")
+    with open(temp_video_path, "wb") as f:
+        f.write(video_file.read())
 
-        cap = cv2.VideoCapture(temp_video_path)
-        frame_count = 0
-        resnet_preds = []
-        custom_preds = []
+    cap = cv2.VideoCapture(temp_video_path)
+    if not cap.isOpened():  # 檢查影片是否成功加載
+        st.error("影片無法加載，請檢查檔案格式或重新上傳。")
+        return
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frame_count += 1
-            if frame_count % 10 == 0:
+    frame_count = 0
+    resnet_preds = []
+    custom_preds = []
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame_count += 1
+        if frame_count % 10 == 0:
+            try:
                 display_img, resnet_input, custom_input = preprocess_image(frame)
                 
                 # ResNet50 預測
@@ -133,16 +130,22 @@ def process_video(video_file):
 
                 rgb_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
                 st.image(rgb_img, caption=f"第 {frame_count} 幀：ResNet50 預測：{resnet_label} ({resnet_confidence:.2%}), Custom CNN 預測：{custom_label} ({custom_confidence:.2%})", use_container_width=True)
+            except Exception as e:
+                st.warning(f"處理幀錯誤：{e}")
+                continue
 
-        cap.release()
+        # 當用戶取消處理影片時，可以檢查是否仍在處理過程中
+        if not cap.isOpened():  
+            st.warning("影片處理已被中斷。")
+            break
 
-        # 顯示信心圖表（ResNet50 和 Custom CNN 的預測結果）
-        if resnet_preds:
-            st.line_chart(resnet_preds)
-        if custom_preds:
-            st.line_chart(custom_preds)
-    except Exception as e:
-        st.error(f"❌ 發生錯誤：{e}")
+    cap.release()
+
+    # 顯示信心圖表（ResNet50 和 Custom CNN 的預測結果）
+    if resnet_preds:
+        st.line_chart(resnet_preds)
+    if custom_preds:
+        st.line_chart(custom_preds)
 
 # Streamlit UI
 st.title("🎬 Deepfake 偵測 App（ResNet50 和 Custom CNN）")
