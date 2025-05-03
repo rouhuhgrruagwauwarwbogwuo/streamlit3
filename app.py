@@ -38,70 +38,83 @@ def load_custom_model():
 
 custom_model = load_custom_model()
 
-# 載入 MTCNN 人臉檢測模型
-detector = MTCNN(min_face_size=40)
+# 載入 MTCNN 人臉檢測器
+detector = MTCNN()
 
-# 圖像預處理：使用 MTCNN 檢測臉部並擷取
+# 圖像預處理：使用人臉 + CLAHE + 銳化
 def preprocess_image(img):
-    # 使用 MTCNN 檢測人臉
     faces = detector.detect_faces(img)
-
+    
     if len(faces) == 0:
         face_img = img
     else:
-        # 取第一個偵測到的臉部
         x, y, w, h = faces[0]['box']
         face_img = img[y:y+h, x:x+w]
-
+    
     face_img = cv2.resize(face_img, (256, 256))
 
-    # 直接使用 ResNet50 和 Custom CNN 的預處理
-    resnet_input = preprocess_input(np.expand_dims(face_img, axis=0).astype(np.float32))
-    custom_input = np.expand_dims(face_img / 255.0, axis=0)
-    return img, resnet_input, custom_input
+    # 輕度 CLAHE 處理
+    lab = cv2.cvtColor(face_img, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
+    cl = clahe.apply(l)
+    limg = cv2.merge((cl, a, b))
+    face_img = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+
+    # 輕度銳化
+    kernel = np.array([[0, -0.5, 0], [-0.5, 3, -0.5], [0, -0.5, 0]])
+    sharpened = cv2.filter2D(face_img, -1, kernel)
+
+    resnet_input = preprocess_input(np.expand_dims(sharpened, axis=0).astype(np.float32))
+    custom_input = np.expand_dims(sharpened / 255.0, axis=0)
+    return sharpened, resnet_input, custom_input
 
 # 圖片偵測
 def process_image(file_bytes):
-    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-    display_img, resnet_input, custom_input = preprocess_image(img)
-    
-    # ResNet50 預測
-    resnet_pred = resnet_model.predict(resnet_input)[0][0]
-    resnet_label = "Deepfake" if resnet_pred > 0.5 else "Real"
-    resnet_confidence = resnet_pred if resnet_pred > 0.5 else 1 - resnet_pred
-    
-    # Custom CNN 預測（作為參考）
-    custom_pred = custom_model.predict(custom_input)[0][0]
-    custom_label = "Deepfake" if custom_pred > 0.5 else "Real"
-    custom_confidence = custom_pred if custom_pred > 0.5 else 1 - custom_pred
+    try:
+        img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        display_img, resnet_input, custom_input = preprocess_image(img)
+        
+        # ResNet50 預測
+        resnet_pred = resnet_model.predict(resnet_input)[0][0]
+        resnet_label = "Deepfake" if resnet_pred > 0.5 else "Real"
+        resnet_confidence = resnet_pred if resnet_pred > 0.5 else 1 - resnet_pred
+        
+        # Custom CNN 預測（作為參考）
+        custom_pred = custom_model.predict(custom_input)[0][0]
+        custom_label = "Deepfake" if custom_pred > 0.5 else "Real"
+        custom_confidence = custom_pred if custom_pred > 0.5 else 1 - custom_pred
 
-    # 顯示完整圖片並呈現 ResNet50 的預測
-    rgb_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
-    st.image(rgb_img, caption=f"ResNet50 預測：{resnet_label} ({resnet_confidence:.2%})", use_container_width=True)
+        # 顯示完整圖片並呈現 ResNet50 的預測
+        rgb_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
+        st.image(rgb_img, caption=f"ResNet50 預測：{resnet_label} ({resnet_confidence:.2%})", use_container_width=True)
 
-    # 顯示 Custom CNN 的預測結果，但使用較小的字型
-    st.markdown(f"Custom CNN 預測：{custom_label} ({custom_confidence:.2%})", unsafe_allow_html=True)
+        # 顯示 Custom CNN 的預測結果，但使用較小的字型
+        st.markdown(f"Custom CNN 預測：{custom_label} ({custom_confidence:.2%})", unsafe_allow_html=True)
 
-    return resnet_label, resnet_confidence, custom_label, custom_confidence
+        return resnet_label, resnet_confidence, custom_label, custom_confidence
+    except Exception as e:
+        st.error(f"❌ 發生錯誤：{e}")
+        return None
 
 # 影片處理（每 10 幀）
 def process_video(video_file):
-    temp_video_path = os.path.join(tempfile.gettempdir(), "temp_video.mp4")
-    with open(temp_video_path, "wb") as f:
-        f.write(video_file.read())
+    try:
+        temp_video_path = os.path.join(tempfile.gettempdir(), "temp_video.mp4")
+        with open(temp_video_path, "wb") as f:
+            f.write(video_file.read())
 
-    cap = cv2.VideoCapture(temp_video_path)
-    frame_count = 0
-    resnet_preds = []
-    custom_preds = []
+        cap = cv2.VideoCapture(temp_video_path)
+        frame_count = 0
+        resnet_preds = []
+        custom_preds = []
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frame_count += 1
-        if frame_count % 10 == 0:
-            try:
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame_count += 1
+            if frame_count % 10 == 0:
                 display_img, resnet_input, custom_input = preprocess_image(frame)
                 
                 # ResNet50 預測
@@ -120,16 +133,16 @@ def process_video(video_file):
 
                 rgb_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
                 st.image(rgb_img, caption=f"第 {frame_count} 幀：ResNet50 預測：{resnet_label} ({resnet_confidence:.2%}), Custom CNN 預測：{custom_label} ({custom_confidence:.2%})", use_container_width=True)
-            except Exception as e:
-                st.warning(f"處理幀錯誤：{e}")
-                continue
-    cap.release()
 
-    # 顯示信心圖表（ResNet50 和 Custom CNN 的預測結果）
-    if resnet_preds:
-        st.line_chart(resnet_preds)
-    if custom_preds:
-        st.line_chart(custom_preds)
+        cap.release()
+
+        # 顯示信心圖表（ResNet50 和 Custom CNN 的預測結果）
+        if resnet_preds:
+            st.line_chart(resnet_preds)
+        if custom_preds:
+            st.line_chart(custom_preds)
+    except Exception as e:
+        st.error(f"❌ 發生錯誤：{e}")
 
 # Streamlit UI
 st.title("🎬 Deepfake 偵測 App（ResNet50 和 Custom CNN）")
