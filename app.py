@@ -10,6 +10,7 @@ from tensorflow.keras.models import load_model, Sequential
 from tensorflow.keras.applications import ResNet50
 from tensorflow.keras.applications.resnet50 import preprocess_input
 from tensorflow.keras.layers import Dense
+from mtcnn import MTCNN
 
 # 載入 ResNet50 模型
 @st.cache_resource
@@ -37,18 +38,19 @@ def load_custom_model():
 
 custom_model = load_custom_model()
 
-# 載入 OpenCV 人臉檢測模型
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+# 載入 MTCNN 人臉檢測模型
+detector = MTCNN()
 
-# 圖像預處理：僅進行人臉擷取，並縮放至 256x256
+# 圖像預處理：使用 MTCNN 檢測臉部並擷取
 def preprocess_image(img):
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-
+    # 使用 MTCNN 檢測人臉
+    faces = detector.detect_faces(img)
+    
     if len(faces) == 0:
         face_img = img
     else:
-        x, y, w, h = faces[0]
+        # 取第一個偵測到的臉部
+        x, y, w, h = faces[0]['box']
         face_img = img[y:y+h, x:x+w]
 
     face_img = cv2.resize(face_img, (256, 256))
