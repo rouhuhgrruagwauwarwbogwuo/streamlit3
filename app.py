@@ -86,8 +86,11 @@ def process_image(file_bytes):
 
     # 顯示圖片並呈現 ResNet50 和 Custom CNN 的預測
     rgb_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
-    st.image(rgb_img, caption=f"ResNet50 預測：{resnet_label} ({resnet_confidence:.2%}), Custom CNN 預測：{custom_label} ({custom_confidence:.2%})", use_container_width=True)
-    
+    st.image(rgb_img, caption=f"ResNet50 預測：{resnet_label} ({resnet_confidence:.2%})", use_container_width=True)
+
+    # 顯示 Custom CNN 的預測結果，但使用較小的字型
+    st.markdown(f"Custom CNN 預測：{custom_label} ({custom_confidence:.2%})", unsafe_allow_html=True)
+
     return resnet_label, resnet_confidence, custom_label, custom_confidence
 
 # 影片處理（每 10 幀）
@@ -125,7 +128,10 @@ def process_video(video_file):
                 custom_confidence = custom_pred if custom_pred > 0.5 else 1 - custom_pred
 
                 rgb_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
-                st.image(rgb_img, caption=f"第 {frame_count} 幀：ResNet50 預測：{resnet_label} ({resnet_confidence:.2%}), Custom CNN 預測：{custom_label} ({custom_confidence:.2%})", use_container_width=True)
+                st.image(rgb_img, caption=f"第 {frame_count} 幀：ResNet50 預測：{resnet_label} ({resnet_confidence:.2%})", use_container_width=True)
+
+                # 顯示 Custom CNN 預測的結果，使用較小字型
+                st.markdown(f"<small>Custom CNN 預測：{custom_label} ({custom_confidence:.2%})</small>", unsafe_allow_html=True)
             except Exception as e:
                 st.warning(f"處理幀錯誤：{e}")
                 continue
