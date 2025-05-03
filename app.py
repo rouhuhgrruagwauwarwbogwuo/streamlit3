@@ -1,4 +1,3 @@
-# streamlit_app.py
 import os
 import numpy as np
 import cv2
@@ -12,6 +11,13 @@ from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications import ResNet50
 from tensorflow.keras.applications.resnet50 import preprocess_input
 from tensorflow.keras.layers import Dense
+
+# 安裝 OpenCV 頭部版本的安全性處理
+try:
+    import cv2
+except ImportError:
+    st.error("❌ 未安裝 OpenCV，正在嘗試安裝 opencv-python-headless...")
+    os.system('pip install opencv-python-headless==4.5.5.64')
 
 # 🔹 Hugging Face 模型下載網址
 MODEL_URL = "https://huggingface.co/wuwuwu123123/deepfake3/resolve/main/deepfake_cnn_model.h5"
@@ -49,27 +55,29 @@ resnet_classifier = Sequential([
 ])
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
-# 🔧 改進預處理：CLAHE + 銳化（輕度）
+# 🔧 改進預處理：CLAHE + 銳化，但只給模型使用
 def enhance_image(img):
     img_yuv = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
     img_yuv[:, :, 0] = cv2.equalizeHist(img_yuv[:, :, 0])
     img_eq = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2BGR)
-    kernel = np.array([[0, -0.5, 0], [-0.5, 3, -0.5], [0, -0.5, 0]])
+    kernel = np.array([[0, -1, 0], [-1, 5,-1], [0, -1, 0]])
     img_sharp = cv2.filter2D(img_eq, -1, kernel)
     return img_sharp
 
 def preprocess_for_models(img):
-    img = enhance_image(img)
-    img_resized = cv2.resize(img, (256, 256))
-    resnet_input = preprocess_input(np.expand_dims(img_resized.astype(np.float32), axis=0))
+    processed = enhance_image(img)
+    img_resized = cv2.resize(processed, (256, 256))
+    resnet_input = preprocess_input(np.expand_dims(img_resized, axis=0))
+
     gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
     clahe_rgb = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2RGB)
-    custom_input = np.expand_dims(clahe_rgb.astype(np.float32) / 255.0, axis=0)
-    return resnet_input, custom_input, img_resized
+    custom_input = np.expand_dims(clahe_rgb / 255.0, axis=0)
 
-# 🔁 後處理平滑：移動平均分數
+    return resnet_input, custom_input
+
+# 🔁 平滑預測
 def smooth_predictions(pred_list, window_size=5):
     if len(pred_list) < window_size:
         return pred_list
@@ -85,40 +93,28 @@ def plot_confidence(resnet_conf, custom_conf, combined_conf):
     ax.set_ylabel('Confidence')
     st.pyplot(fig)
 
-# 🔹 圖片處理邏輯
+# 🔹 圖片偵測
 def process_image(file_bytes):
     try:
-        if file_bytes is None or len(file_bytes) == 0:
-            st.warning("未讀取到圖片內容，請重新上傳。")
-            return
-
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        if img is None:
-            st.warning("❌ 無法解碼圖片，可能檔案格式不支援或已損壞。")
-            return
+        original_img = img.copy()
+        resnet_input, custom_input = preprocess_for_models(img)
 
-        resnet_input, custom_input, display_img = preprocess_for_models(img)
         resnet_pred = resnet_classifier.predict(resnet_input)[0][0]
         custom_pred = custom_model.predict(custom_input)[0][0]
         combined_pred = (resnet_pred + custom_pred) / 2
         label = "Deepfake" if combined_pred > 0.5 else "Real"
         confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
 
-        st.image(cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB), caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
+        st.image(cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB), caption=f"預測結果：{label} ({confidence:.2%})", use_container_width=True)
         plot_confidence(resnet_pred, custom_pred, combined_pred)
-
-    except IndexError:
-        st.error("❌ 圖片資料處理錯誤，可能已中斷或內容無效。")
     except Exception as e:
         st.error(f"❌ 圖片處理錯誤: {e}")
 
-# 🔹 影片處理邏輯
+# 🔹 影片偵測，每10幀
+
 def process_video_and_generate_result(video_file):
     try:
-        if video_file is None:
-            st.warning("請上傳影片檔案。")
-            return None
-
         temp_video_path = os.path.join(tempfile.gettempdir(), "temp_video.mp4")
         with open(temp_video_path, "wb") as f:
             f.write(video_file.read())
@@ -126,7 +122,10 @@ def process_video_and_generate_result(video_file):
         cap = cv2.VideoCapture(temp_video_path)
         if not cap.isOpened():
             st.error("❌ 無法打開影片檔案。")
-            return None
+            return
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        st.write(f"影片總幀數: {total_frames}")
 
         frame_preds = []
         frame_count = 0
@@ -138,41 +137,37 @@ def process_video_and_generate_result(video_file):
             frame_count += 1
             if frame_count % 10 == 0:
                 try:
-                    resnet_input, custom_input, display_img = preprocess_for_models(frame)
+                    original_img = frame.copy()
+                    resnet_input, custom_input = preprocess_for_models(frame)
+
                     resnet_pred = resnet_classifier.predict(resnet_input)[0][0]
                     custom_pred = custom_model.predict(custom_input)[0][0]
                     combined_pred = (resnet_pred + custom_pred) / 2
                     label = "Deepfake" if combined_pred > 0.5 else "Real"
                     confidence = combined_pred if combined_pred > 0.5 else 1 - combined_pred
 
-                    cv2.putText(display_img, f"{label} ({confidence:.2%})", (10, 30),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                    st.image(cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB), caption=f"幀 {frame_count}: {label} ({confidence:.2%})", use_container_width=True)
+                    cv2.putText(original_img, f"{label} ({confidence:.2%})", (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+
+                    st.image(cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB), caption=f"幀 {frame_count}: {label} ({confidence:.2%})", use_container_width=True)
                     frame_preds.append(combined_pred)
 
-                except IndexError:
-                    st.warning("❌ 幀影像處理出錯，已跳過此幀。")
-                    continue
                 except Exception as e:
-                    st.warning(f"❌ 幀處理錯誤: {e}")
-                    continue
+                    st.error(f"處理幀錯誤: {e}")
+                    break
 
         cap.release()
-
         if frame_preds:
             smoothed = smooth_predictions(frame_preds)
             st.line_chart(smoothed)
             st.success("🎉 偵測完成！")
-        else:
-            st.warning("⚠️ 沒有成功分析的幀數。")
+
     except Exception as e:
         st.error(f"❌ 影片處理錯誤: {e}")
-        return None
 
-# 🔹 Streamlit UI
+# 🔹 Streamlit 介面
 st.title("🕵️ Deepfake 偵測 App")
 option = st.radio("請選擇檔案類型：", ("圖片", "影片"))
-
 uploaded_file = st.file_uploader("📤 上傳檔案", type=["jpg", "jpeg", "png", "mp4", "mov"])
 
 if uploaded_file is not None:
@@ -182,9 +177,7 @@ if uploaded_file is not None:
             process_image(file_bytes)
         elif option == "影片" and uploaded_file.type.startswith("video"):
             st.markdown("### 處理影片中...")
-            processed_video_path = process_video_and_generate_result(uploaded_file)
-            if processed_video_path:
-                st.video(processed_video_path)
+            process_video_and_generate_result(uploaded_file)
         else:
             st.warning("請確認上傳的檔案類型與選擇一致。")
     except Exception as e:
