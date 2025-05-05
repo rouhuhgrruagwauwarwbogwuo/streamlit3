@@ -60,111 +60,147 @@ def preprocess_image(image_path, target_size=(256, 256)):
 
 # 🔹 使用 MTCNN 偵測人臉
 def extract_face(image):
-    detector = MTCNN()
-    faces = detector.detect_faces(image)
-    
-    if len(faces) > 0:
-        x, y, w, h = faces[0]['box']
-        face_img = image[y:y+h, x:x+w]
-        return face_img
-    else:
+    try:
+        detector = MTCNN()
+        faces = detector.detect_faces(image)
+        
+        if len(faces) > 0:
+            x, y, w, h = faces[0]['box']
+            face_img = image[y:y+h, x:x+w]
+            return face_img
+        else:
+            print("未偵測到人臉")
+            return None
+    except Exception as e:
+        print(f"人臉偵測錯誤: {e}")
         return None
 
 # 🔹 高通濾波
 def apply_highpass_filter(image):
-    gray_img = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-    highpass = cv2.Laplacian(gray_img, cv2.CV_64F)
-    return highpass
+    try:
+        gray_img = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        highpass = cv2.Laplacian(gray_img, cv2.CV_64F)
+        return highpass
+    except Exception as e:
+        print(f"高通濾波錯誤: {e}")
+        return image
 
 # 🔹 頻域分析 (FFT)
 def apply_fft(image):
-    f = np.fft.fft2(image)
-    fshift = np.fft.fftshift(f)
-    magnitude_spectrum = np.log(np.abs(fshift) + 1)
-    return magnitude_spectrum
+    try:
+        f = np.fft.fft2(image)
+        fshift = np.fft.fftshift(f)
+        magnitude_spectrum = np.log(np.abs(fshift) + 1)
+        return magnitude_spectrum
+    except Exception as e:
+        print(f"FFT 分析錯誤: {e}")
+        return image
 
 # 🔹 顏色空間轉換 (YCbCr)
 def convert_to_ycbcr(image):
-    ycbcr_image = cv2.cvtColor(image, cv2.COLOR_RGB2YCrCb)
-    return ycbcr_image
+    try:
+        ycbcr_image = cv2.cvtColor(image, cv2.COLOR_RGB2YCrCb)
+        return ycbcr_image
+    except Exception as e:
+        print(f"顏色轉換錯誤: {e}")
+        return image
 
 # 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
 def preprocess_for_both_models(image_path):
-    img = image.load_img(image_path, target_size=(256, 256))  # 調整大小
-    img_array = image.img_to_array(img)
-    
-    # ResNet50 需要特別的 preprocess_input
-    resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
-    
-    # 自訂 CNN 只需要正規化 (0~1)
-    custom_input = np.expand_dims(img_array / 255.0, axis=0)
-    
-    return resnet_input, custom_input
+    try:
+        img = image.load_img(image_path, target_size=(256, 256))  # 調整大小
+        img_array = image.img_to_array(img)
+        
+        # ResNet50 需要特別的 preprocess_input
+        resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
+        
+        # 自訂 CNN 只需要正規化 (0~1)
+        custom_input = np.expand_dims(img_array / 255.0, axis=0)
+        
+        return resnet_input, custom_input
+    except Exception as e:
+        print(f"預處理錯誤: {e}")
+        return None, None
 
 # 🔹 進行預測
 def predict_with_both_models(image_path):
-    resnet_input, custom_input = preprocess_for_both_models(image_path)
-    
-    # ResNet50 預測
-    resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
-    resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
-    
-    # 自訂 CNN 模型預測
-    custom_prediction = custom_model.predict(custom_input)[0][0]
-    custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
-    
-    return resnet_label, resnet_prediction, custom_label, custom_prediction
+    try:
+        resnet_input, custom_input = preprocess_for_both_models(image_path)
+        
+        if resnet_input is None or custom_input is None:
+            return "Error", 0, "Error", 0
+        
+        # ResNet50 預測
+        resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
+        resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
+        
+        # 自訂 CNN 模型預測
+        custom_prediction = custom_model.predict(custom_input)[0][0]
+        custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
+        
+        return resnet_label, resnet_prediction, custom_label, custom_prediction
+    except Exception as e:
+        print(f"預測錯誤: {e}")
+        return "Error", 0, "Error", 0
 
 # 🔹 顯示圖片和預測結果
 def show_prediction(image_path):
-    # 嘗試擷取人臉
-    img = cv2.imread(image_path)
-    face_img = extract_face(img)
-    
-    if face_img is not None:
-        face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)  # 轉為 RGB 格式
-        resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(face_img)
-    else:
-        resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(image_path)
-    
-    # 顯示圖片
-    img = image.load_img(image_path, target_size=(256, 256))
-    st.image(img, caption="上傳的圖片", use_container_width=True)
-    
-    # 顯示預測結果
-    st.write(f"**ResNet50 預測結果**: {resnet_label} ({resnet_confidence:.2%})")
-    st.write(f"**自訂 CNN 預測結果**: {custom_label} ({custom_confidence:.2%})")
-
-# 🔹 逐幀處理影片
-def process_video(video_path):
-    cap = cv2.VideoCapture(video_path)
-    
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+    try:
+        # 嘗試擷取人臉
+        img = cv2.imread(image_path)
+        face_img = extract_face(img)
         
-        # 處理每一幀
-        face_img = extract_face(frame)
         if face_img is not None:
             face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)  # 轉為 RGB 格式
             resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(face_img)
         else:
-            resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(frame)
+            resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(image_path)
         
-        # 顯示預測結果於每一幀
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(frame, f"ResNet50: {resnet_label} ({resnet_confidence:.2%})", (10, 30), font, 1, (0, 255, 0), 2)
-        cv2.putText(frame, f"Custom CNN: {custom_label} ({custom_confidence:.2%})", (10, 70), font, 1, (0, 255, 0), 2)
+        # 顯示圖片
+        img = image.load_img(image_path, target_size=(256, 256))
+        st.image(img, caption="上傳的圖片", use_container_width=True)
         
-        # 顯示處理後的幀
-        cv2.imshow('Deepfake Detection', frame)
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):  # 按 'q' 停止
-            break
+        # 顯示預測結果
+        st.write(f"**ResNet50 預測結果**: {resnet_label} ({resnet_confidence:.2%})")
+        st.write(f"**自訂 CNN 預測結果**: {custom_label} ({custom_confidence:.2%})")
     
-    cap.release()
-    cv2.destroyAllWindows()
+    except Exception as e:
+        print(f"顯示預測錯誤: {e}")
+
+# 🔹 逐幀處理影片
+def process_video(video_path):
+    try:
+        cap = cv2.VideoCapture(video_path)
+        
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            # 處理每一幀
+            face_img = extract_face(frame)
+            if face_img is not None:
+                face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)  # 轉為 RGB 格式
+                resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(face_img)
+            else:
+                resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(frame)
+            
+            # 顯示預測結果於每一幀
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            cv2.putText(frame, f"ResNet50: {resnet_label} ({resnet_confidence:.2%})", (10, 30), font, 1, (0, 255, 0), 2)
+            cv2.putText(frame, f"Custom CNN: {custom_label} ({custom_confidence:.2%})", (10, 70), font, 1, (0, 255, 0), 2)
+            
+            # 顯示處理後的幀
+            cv2.imshow('Deepfake Detection', frame)
+            
+            if cv2.waitKey(1) & 0xFF == ord('q'):  # 按 'q' 停止
+                break
+        
+        cap.release()
+        cv2.destroyAllWindows()
+    
+    except Exception as e:
+        print(f"處理影片錯誤: {e}")
 
 # 🔹 使用圖片上傳
 uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
