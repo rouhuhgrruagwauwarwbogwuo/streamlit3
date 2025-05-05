@@ -8,6 +8,20 @@ from tensorflow.keras.applications.resnet50 import preprocess_input
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import Sequential
 import face_recognition
+import requests
+from io import BytesIO
+
+# 🔹 從 Hugging Face 下載模型
+model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
+response = requests.get(model_url)
+
+# 將模型從 URL 下載並加載
+model_path = '/tmp/deepfake_cnn_model.h5'
+with open(model_path, 'wb') as f:
+    f.write(response.content)
+
+# 載入自訂 CNN 模型
+custom_model = load_model(model_path)
 
 # 🔹 載入 ResNet50 模型
 resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
@@ -16,9 +30,6 @@ resnet_classifier = Sequential([
     Dense(1, activation='sigmoid')  # 1 個輸出節點（0: 真實, 1: 假）
 ])
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-
-# 🔹 載入自訂 CNN 模型
-custom_model = load_model('deepfake_cnn_model.h5')
 
 # 🔹 去噪 + 光線標準化的預處理函數
 def preprocess_image(image_path, target_size=(256, 256)):
@@ -123,6 +134,37 @@ def show_prediction(image_path):
               f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
     plt.show()
 
-# 🔹 使用模型進行預測
-image_path = 'test_image.jpg'  # 替換成你的測試圖片
-show_prediction(image_path)     # 顯示圖片與預測結果
+# 🔹 逐幀處理影片
+def process_video(video_path):
+    cap = cv2.VideoCapture(video_path)
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # 處理每一幀
+        face_img = extract_face(frame)
+        if face_img is not None:
+            face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)  # 轉為 RGB 格式
+            resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(face_img)
+        else:
+            resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(frame)
+        
+        # 顯示預測結果於每一幀
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(frame, f"ResNet50: {resnet_label} ({resnet_confidence:.2%})", (10, 30), font, 1, (0, 255, 0), 2)
+        cv2.putText(frame, f"Custom CNN: {custom_label} ({custom_confidence:.2%})", (10, 70), font, 1, (0, 255, 0), 2)
+        
+        # 顯示處理後的幀
+        cv2.imshow('Deepfake Detection', frame)
+        
+        if cv2.waitKey(1) & 0xFF == ord('q'):  # 按 'q' 停止
+            break
+    
+    cap.release()
+    cv2.destroyAllWindows()
+
+# 🔹 使用影片進行預測
+video_path = 'test_video.mp4'  # 替換成您的影片路徑
+process_video(video_path)  # 開始逐幀處理影片
