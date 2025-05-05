@@ -7,9 +7,9 @@ from tensorflow.keras.applications import ResNet50
 from tensorflow.keras.applications.resnet50 import preprocess_input
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import Sequential
-import face_recognition
 import requests
 from io import BytesIO
+from mtcnn import MTCNN  # 使用 MTCNN 進行人臉偵測
 
 # 🔹 從 Hugging Face 下載模型
 model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
@@ -56,14 +56,14 @@ def preprocess_image(image_path, target_size=(256, 256)):
         print(f"發生錯誤：{e}")
         return None
 
-# 🔹 人臉偵測
-def extract_face(image_path):
-    img = face_recognition.load_image_file(image_path)
-    face_locations = face_recognition.face_locations(img)
+# 🔹 使用 MTCNN 偵測人臉
+def extract_face(image):
+    detector = MTCNN()
+    faces = detector.detect_faces(image)
     
-    if len(face_locations) > 0:
-        top, right, bottom, left = face_locations[0]
-        face_img = img[top:bottom, left:right]
+    if len(faces) > 0:
+        x, y, w, h = faces[0]['box']
+        face_img = image[y:y+h, x:x+w]
         return face_img
     else:
         return None
@@ -116,7 +116,8 @@ def predict_with_both_models(image_path):
 # 🔹 顯示圖片和預測結果
 def show_prediction(image_path):
     # 嘗試擷取人臉
-    face_img = extract_face(image_path)
+    img = cv2.imread(image_path)
+    face_img = extract_face(img)
     
     if face_img is not None:
         face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)  # 轉為 RGB 格式
