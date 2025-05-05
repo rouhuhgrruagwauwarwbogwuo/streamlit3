@@ -6,4 +6,4 @@ h5py>=3.6.0
 requests>=2.25.0
 matplotlib>=3.5.0
 mtcnn
-face_recognition
+
