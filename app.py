@@ -1,90 +1,30 @@
-import numpy as np
 import streamlit as st
+import numpy as np
 import cv2
+import tempfile
+import requests
+import os
+from PIL import Image
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications import ResNet50
 from tensorflow.keras.applications.resnet50 import preprocess_input
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import Sequential
-from PIL import Image
-from mtcnn import MTCNN
-import tempfile
-import os
 
-# 🔹 載入 ResNet50 模型
-resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
-resnet_classifier = Sequential([
-    resnet_model,
-    Dense(1, activation='sigmoid')  # 1 個輸出節點（0: 真實, 1: 假）
-])
-resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+# 下載模型（只會下載一次）
+@st.cache_resource
+def download_model():
+    model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
+    model_path = "deepfake_cnn_model.h5"
+    if not os.path.exists(model_path):
+        with st.spinner("下載模型中..."):
+            r = requests.get(model_url)
+            with open(model_path, "wb") as f:
+                f.write(r.content)
+    return load_model(model_path)
 
-# 🔹 載入自訂 CNN 模型
-custom_model = load_model('deepfake_cnn_model.h5')
-
-# 🔹 初始化 MTCNN 人臉檢測器
-detector = MTCNN()
-
-# 🔹 預處理函數 - 高通濾波（Edge Enhancement）
-def high_pass_filter(img_array):
-    kernel = np.array([[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]])
-    filtered_img = cv2.filter2D(img_array, -1, kernel)
-    return filtered_img
-
-# 🔹 預處理函數 - 頻域特徵分析 (FFT)
-def fft_filter(img_array):
-    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-    f = np.fft.fft2(gray)
-    fshift = np.fft.fftshift(f)
-    magnitude_spectrum = np.log(np.abs(fshift) + 1)
-    return magnitude_spectrum
-
-# 🔹 顏色空間轉換
-def convert_to_ycbcr(img_array):
-    img_ycbcr = cv2.cvtColor(img_array, cv2.COLOR_RGB2YCrCb)
-    return img_ycbcr
-
-def convert_to_lab(img_array):
-    img_lab = cv2.cvtColor(img_array, cv2.COLOR_RGB2LAB)
-    return img_lab
-
-# 🔹 CLAHE + 銳化預處理
-def preprocess_image(image_path, target_size=(256, 256)):
-    try:
-        img = image.load_img(image_path, target_size=target_size)
-        img_array = image.img_to_array(img).astype('uint8')
-
-        # CLAHE (Contrast Limited Adaptive Histogram Equalization)
-        img_gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        img_gray = clahe.apply(img_gray)
-
-        # 轉回 RGB
-        img_array = cv2.cvtColor(img_gray, cv2.COLOR_GRAY2RGB)
-        img_array = img_array / 255.0  # 標準化影像 (0~1)
-        
-        # 高通濾波增強
-        img_array = high_pass_filter(img_array)
-        
-        return np.expand_dims(img_array, axis=0)
-    
-    except Exception as e:
-        print(f"發生錯誤：{e}")
-        return None
-
-# 🔹 人臉偵測，擷取人臉區域
-def extract_face(img):
-    img_rgb = cv2.cvtColor(np.array(img), cv2.COLOR_BGR2RGB)
-    faces = detector.detect_faces(img_rgb)
-    
-    if len(faces) > 0:
-        x, y, width, height = faces[0]['box']
-        face = img_rgb[y:y+height, x:x+width]
-        return Image.fromarray(face)
-    return None
-
-# 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
+# 使用 ResNet50 模型進行預測
 def preprocess_for_both_models(image_path):
     img = image.load_img(image_path, target_size=(256, 256))  # 調整大小
     img_array = image.img_to_array(img)
@@ -97,7 +37,7 @@ def preprocess_for_both_models(image_path):
     
     return resnet_input, custom_input
 
-# 🔹 進行預測
+# 進行 ResNet50 預測
 def predict_with_both_models(image_path):
     resnet_input, custom_input = preprocess_for_both_models(image_path)
     
@@ -111,69 +51,71 @@ def predict_with_both_models(image_path):
     
     return resnet_label, resnet_prediction, custom_label, custom_prediction
 
-# 🔹 顯示圖片和預測結果
+# 人臉偵測
+def detect_face(img):
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    img_array = np.array(img)
+    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+    
+    if len(faces) > 0:
+        for (x, y, w, h) in faces:
+            img_array = cv2.rectangle(img_array, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        face_img = Image.fromarray(img_array)
+        return face_img
+    return img
+
+# 顯示圖片和預測結果
 def show_prediction(image_path):
     resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(image_path)
     
     # 顯示圖片
     img = image.load_img(image_path, target_size=(256, 256))
-    st.image(img, caption="預測圖片", use_column_width=True)
+    st.image(img, caption="原始圖片", use_container_width=True)
     
     # 顯示預測結果
-    st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
-                 f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
+    st.subheader(f"✅ 預測結果：")
+    st.write(f"ResNet50 預測：{resnet_label} ({resnet_confidence:.2%} 信心分數)")
+    st.write(f"Custom CNN 預測：{custom_label} ({custom_confidence:.2%} 信心分數)")
+    
+    # 顯示偵測到的人臉
+    face_img = detect_face(img)
+    st.image(face_img, caption="偵測到的人臉", use_container_width=True)
 
-# 🔹 Streamlit 主應用程式
+# 主頁面設定
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖片與影片偵測器")
 
-tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
+model = download_model()
 
-# ---------- 圖片 ----------
-with tab1:
-    st.header("圖片偵測")
-    uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
-    if uploaded_image:
-        pil_img = Image.open(uploaded_image).convert("RGB")
-        st.image(pil_img, caption="原始圖片", use_column_width=True)
+# ---------- 圖片偵測 ----------
+st.header("圖片偵測")
+uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
+if uploaded_image:
+    pil_img = Image.open(uploaded_image).convert("RGB")
+    show_prediction(uploaded_image)  # 顯示圖片與預測結果
 
-        # 嘗試擷取人臉區域
-        face_img = extract_face(pil_img)
-        if face_img:
-            st.image(face_img, caption="偵測到的人臉", use_column_width=True)
-            show_prediction(face_img)
-        else:
-            st.write("未偵測到人臉，使用整體圖片進行預測")
-            show_prediction(uploaded_image)
+# ---------- 影片偵測 ----------
+st.header("影片偵測（每 10 幀抽圖）")
+uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
+if uploaded_video:
+    st.video(uploaded_video)
 
-# ---------- 影片 ----------
-with tab2:
-    st.header("影片偵測（每 10 幀抽圖）")
-    uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
-    if uploaded_video:
-        st.video(uploaded_video)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+        tmp.write(uploaded_video.read())
+        video_path = tmp.name
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-            tmp.write(uploaded_video.read())
-            video_path = tmp.name
-
-        st.info("🎬 擷取影片幀與進行預測中...")
-        cap = cv2.VideoCapture(video_path)
-        frame_idx = 0
-        results = []
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            if frame_idx % 10 == 0:  # 每 10 幀進行一次處理
-                frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                face_img = extract_face(frame_pil)
-                if face_img:
-                    result = predict_with_both_models(face_img)
-                    results.append((frame_idx, result))
-                frame_idx += 1
-        cap.release()
-
-        # 顯示影片結果
-        for idx, (resnet_label, resnet_confidence, custom_label, custom_confidence) in results:
-            st.image(frame_pil, caption=f"第 {idx} 幀 - {resnet_label} ({resnet_confidence:.2%})", use_column_width=True)
+    st.info("🎬 擷取影片幀與進行預測中...")
+    cap = cv2.VideoCapture(video_path)
+    frame_idx = 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if frame_idx % 10 == 0:
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(rgb_frame)
+            st.image(pil_img, caption=f"第 {frame_idx} 幀", use_container_width=True)
+            show_prediction(pil_img)  # 顯示每一幀的預測結果
+        frame_idx += 1
+    cap.release()
