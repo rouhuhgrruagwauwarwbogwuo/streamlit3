@@ -11,9 +11,8 @@ from tensorflow.keras.layers import Dense
 import requests
 import os
 from PIL import Image
-import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Deepfake Detector", layout="wide")
+st.set_page_config(page_title="Deepfake 偵測系統", layout="wide")
 
 # ====== 下載與載入模型 ======
 @st.cache_resource
@@ -72,14 +71,14 @@ def handle_image_upload(uploaded_file):
     processed = preprocess_image_cv2(face if face is not None else img_np)
 
     resnet_pred, custom_pred = predict_frame(processed)
-    resnet_label = "Deepfake" if resnet_pred > 0.5 else "Real"
-    custom_label = "Deepfake" if custom_pred > 0.5 else "Real"
+    resnet_label = "偽造" if resnet_pred > 0.5 else "真實"
+    custom_label = "偽造" if custom_pred > 0.5 else "真實"
 
-    st.image(img, caption="Uploaded Image", use_container_width=True)
+    st.image(img, caption="上傳圖片", use_container_width=True)
     st.markdown(f"""
-    ### 🔍 Prediction Results
-    - **ResNet50**: {resnet_label} ({resnet_pred:.2%})
-    - **Custom CNN**: {custom_label} ({custom_pred:.2%})
+    ### 🔍 預測結果
+    - **ResNet50 模型**：{resnet_label}（信心值：{resnet_pred:.2%}）
+    - **自訂 CNN 模型**：{custom_label}（信心值：{custom_pred:.2%}）
     """)
 
 # ====== 影片處理 ======
@@ -89,8 +88,6 @@ def handle_video_upload(uploaded_file):
     cap = cv2.VideoCapture(tfile.name)
 
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-
     predictions = []
     stframe = st.empty()
 
@@ -106,36 +103,36 @@ def handle_video_upload(uploaded_file):
         processed = preprocess_image_cv2(face if face is not None else rgb_frame)
         resnet_pred, custom_pred = predict_frame(processed)
 
-        label = "Deepfake" if resnet_pred > 0.5 else "Real"
+        label = "偽造" if resnet_pred > 0.5 else "真實"
         cv2.putText(frame, f"ResNet50: {label} ({resnet_pred:.2%})", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         stframe.image(frame, channels="BGR", use_container_width=True)
 
         predictions.append({
-            "Frame": i,
-            "ResNet50": resnet_pred,
-            "Custom CNN": custom_pred
+            "影格編號": i,
+            "ResNet50 信心值": f"{resnet_pred:.2%}",
+            "自訂模型 信心值": f"{custom_pred:.2%}"
         })
 
     cap.release()
     return predictions
 
 # ====== 主介面 ======
-st.title("🧠 Deepfake Detection App")
-st.sidebar.title("📂 Upload Media")
-option = st.sidebar.radio("Choose input type", ("Image", "Video"))
+st.title("🧠 Deepfake 偵測系統")
+st.sidebar.title("📂 載入媒體")
+option = st.sidebar.radio("選擇偵測類型", ("圖片", "影片"))
 
-if option == "Image":
-    uploaded_image = st.sidebar.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+if option == "圖片":
+    uploaded_image = st.sidebar.file_uploader("請上傳圖片（JPG/PNG）", type=["jpg", "jpeg", "png"])
     if uploaded_image:
         handle_image_upload(uploaded_image)
 
-elif option == "Video":
-    uploaded_video = st.sidebar.file_uploader("Upload a video", type=["mp4", "avi", "mov"])
+elif option == "影片":
+    uploaded_video = st.sidebar.file_uploader("請上傳影片（MP4/AVI）", type=["mp4", "avi", "mov"])
     if uploaded_video:
-        with st.spinner("Processing video..."):
+        with st.spinner("正在處理影片...請稍候"):
             preds = handle_video_upload(uploaded_video)
 
-        st.success("✅ Video processing complete!")
-        st.write("### Prediction Confidence by Frame")
+        st.success("✅ 影片處理完成！")
+        st.write("### 偵測結果表格")
         st.dataframe(preds)
