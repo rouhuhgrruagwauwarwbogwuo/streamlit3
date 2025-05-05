@@ -31,46 +31,30 @@ resnet_classifier = Sequential([
 ])
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
-# 🔹 高通濾波
-def apply_highpass_filter(image):
-    gray_img = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-    highpass = cv2.Laplacian(gray_img, cv2.CV_64F)
-    return highpass
+# 🔹 去噪 + 光線標準化的預處理函數
+def preprocess_image(image_path, target_size=(256, 256)):
+    try:
+        img = image.load_img(image_path, target_size=target_size)
+        img_array = image.img_to_array(img).astype('uint8')
 
-# 🔹 頻域分析 (FFT)
-def apply_fft(image):
-    f = np.fft.fft2(image)
-    fshift = np.fft.fftshift(f)
-    magnitude_spectrum = np.log(np.abs(fshift) + 1)
-    return magnitude_spectrum
-
-# 🔹 顏色空間轉換 (YCbCr)
-def convert_to_ycbcr(image):
-    ycbcr_image = cv2.cvtColor(image, cv2.COLOR_RGB2YCrCb)
-    return ycbcr_image
-
-# 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
-def preprocess_for_both_models(image_path):
-    # 讀取並調整大小
-    img = image.load_img(image_path, target_size=(256, 256))  
-    img_array = image.img_to_array(img)
+        # 轉換成灰階
+        img_gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        
+        # CLAHE (Contrast Limited Adaptive Histogram Equalization)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        img_gray = clahe.apply(img_gray)
+        
+        # 轉回 3 通道
+        img_array = cv2.cvtColor(img_gray, cv2.COLOR_GRAY2RGB)
+        
+        # 標準化影像 (0~1)
+        img_array = img_array / 255.0
+        
+        return np.expand_dims(img_array, axis=0)  # 增加 batch 維度
     
-    # 應用高通濾波
-    highpass_img = apply_highpass_filter(img_array)
-    
-    # 頻域分析（FFT）
-    fft_img = apply_fft(img_array)
-    
-    # 顏色空間轉換 (YCbCr)
-    ycbcr_img = convert_to_ycbcr(img_array)
-    
-    # ResNet50 預處理：使用 preprocess_input
-    resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
-    
-    # 自訂 CNN 預處理：正規化 (0~1)
-    custom_input = np.expand_dims(img_array / 255.0, axis=0)
-    
-    return resnet_input, custom_input, highpass_img, fft_img, ycbcr_img
+    except Exception as e:
+        print(f"發生錯誤：{e}")
+        return None
 
 # 🔹 使用 MTCNN 偵測人臉
 def extract_face(image):
@@ -82,62 +66,114 @@ def extract_face(image):
         face_img = image[y:y+h, x:x+w]
         return face_img
     else:
-        return None
+        print("No face detected")
+        return image  # 如果沒偵測到人臉，直接返回整張圖片
+
+# 🔹 高通濾波
+def apply_highpass_filter(image):
+    try:
+        gray_img = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        if gray_img is None or gray_img.size == 0:
+            raise ValueError("Failed to convert image to grayscale")
+        highpass = cv2.Laplacian(gray_img, cv2.CV_64F)
+        return highpass
+    except Exception as e:
+        print(f"Highpass filter error: {e}")
+        return image
+
+# 🔹 頻域分析 (FFT)
+def apply_fft(image):
+    try:
+        f = np.fft.fft2(image)
+        fshift = np.fft.fftshift(f)
+        magnitude_spectrum = np.log(np.abs(fshift) + 1)
+        return magnitude_spectrum
+    except Exception as e:
+        print(f"FFT error: {e}")
+        return image
+
+# 🔹 顏色空間轉換 (YCbCr)
+def convert_to_ycbcr(image):
+    try:
+        ycbcr_image = cv2.cvtColor(image, cv2.COLOR_RGB2YCrCb)
+        return ycbcr_image
+    except Exception as e:
+        print(f"Color conversion error: {e}")
+        return image
+
+# 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
+def preprocess_for_both_models(image_path):
+    try:
+        img = image.load_img(image_path, target_size=(256, 256))  # 調整大小
+        img_array = image.img_to_array(img)
+        
+        # ResNet50 需要特別的 preprocess_input
+        resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
+        
+        # 自訂 CNN 只需要正規化 (0~1)
+        custom_input = np.expand_dims(img_array / 255.0, axis=0)
+        
+        return resnet_input, custom_input
+    except Exception as e:
+        print(f"Preprocessing error: {e}")
+        return None, None
 
 # 🔹 進行預測
 def predict_with_both_models(image_path):
-    resnet_input, custom_input, highpass_img, fft_img, ycbcr_img = preprocess_for_both_models(image_path)
-    
-    # ResNet50 預測
-    resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
-    resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
-    
-    # 自訂 CNN 模型預測
-    custom_prediction = custom_model.predict(custom_input)[0][0]
-    custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
-    
-    return resnet_label, resnet_prediction, custom_label, custom_prediction, highpass_img, fft_img, ycbcr_img
+    resnet_input, custom_input = preprocess_for_both_models(image_path)
+    if resnet_input is None or custom_input is None:
+        return None, None, None, None
+
+    try:
+        # ResNet50 預測
+        resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
+        resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
+        
+        # 自訂 CNN 模型預測
+        custom_prediction = custom_model.predict(custom_input)[0][0]
+        custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
+        
+        return resnet_label, resnet_prediction, custom_label, custom_prediction
+    except Exception as e:
+        print(f"Prediction error: {e}")
+        return None, None, None, None
 
 # 🔹 顯示圖片和預測結果
 def show_prediction(image_path):
-    # 嘗試擷取人臉
-    img = cv2.imread(image_path)
-    face_img = extract_face(img)
+    try:
+        # 嘗試擷取人臉
+        img = cv2.imread(image_path)
+        face_img = extract_face(img)
+        
+        if face_img is not None:
+            face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)  # 轉為 RGB 格式
+            resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(face_img)
+        else:
+            resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(image_path)
+        
+        if resnet_label is None or custom_label is None:
+            print("Prediction failed.")
+            return
+        
+        # 顯示圖片
+        img = image.load_img(image_path, target_size=(256, 256))
+        plt.imshow(img)
+        plt.axis('off')  # 隱藏座標軸
+        
+        # 顯示預測結果
+        plt.title(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
+                  f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
+        plt.show()
     
-    if face_img is not None:
-        face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)  # 轉為 RGB 格式
-        resnet_label, resnet_confidence, custom_label, custom_confidence, highpass_img, fft_img, ycbcr_img = predict_with_both_models(face_img)
-    else:
-        resnet_label, resnet_confidence, custom_label, custom_confidence, highpass_img, fft_img, ycbcr_img = predict_with_both_models(image_path)
-    
-    # 顯示圖片
-    img = image.load_img(image_path, target_size=(256, 256))
-    plt.imshow(img)
-    plt.axis('off')  # 隱藏座標軸
-    
-    # 顯示預測結果
-    plt.title(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
-              f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
-    plt.show()
-
-    # 顯示高通濾波的結果
-    plt.imshow(highpass_img, cmap='gray')
-    plt.title("Highpass Filter")
-    plt.show()
-
-    # 顯示頻域分析的結果
-    plt.imshow(fft_img, cmap='gray')
-    plt.title("FFT Magnitude Spectrum")
-    plt.show()
-
-    # 顯示顏色空間轉換結果
-    plt.imshow(ycbcr_img)
-    plt.title("YCbCr Color Space")
-    plt.show()
+    except Exception as e:
+        print(f"Error in displaying prediction: {e}")
 
 # 🔹 逐幀處理影片
 def process_video(video_path):
     cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print(f"Failed to open video: {video_path}")
+        return
     
     while cap.isOpened():
         ret, frame = cap.read()
@@ -148,9 +184,9 @@ def process_video(video_path):
         face_img = extract_face(frame)
         if face_img is not None:
             face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)  # 轉為 RGB 格式
-            resnet_label, resnet_confidence, custom_label, custom_confidence, highpass_img, fft_img, ycbcr_img = predict_with_both_models(face_img)
+            resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(face_img)
         else:
-            resnet_label, resnet_confidence, custom_label, custom_confidence, highpass_img, fft_img, ycbcr_img = predict_with_both_models(frame)
+            resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(frame)
         
         # 顯示預測結果於每一幀
         font = cv2.FONT_HERSHEY_SIMPLEX
