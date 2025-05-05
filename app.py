@@ -1,31 +1,13 @@
-import streamlit as st
 import numpy as np
 import cv2
-import tempfile
-import requests
-import os
-from PIL import Image
+import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications import ResNet50
 from tensorflow.keras.applications.resnet50 import preprocess_input
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import Sequential
-
-# ==== 設置頁面配置 ====
-st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
-
-# 🔹 下載模型（只會下載一次）
-@st.cache_resource
-def download_model():
-    model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
-    model_path = "deepfake_cnn_model.h5"
-    if not os.path.exists(model_path):
-        with st.spinner("下載模型中..."):
-            r = requests.get(model_url)
-            with open(model_path, "wb") as f:
-                f.write(r.content)
-    return load_model(model_path)
+import face_recognition
 
 # 🔹 載入 ResNet50 模型
 resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
@@ -36,7 +18,7 @@ resnet_classifier = Sequential([
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
 # 🔹 載入自訂 CNN 模型
-custom_model = download_model()
+custom_model = load_model('deepfake_cnn_model.h5')
 
 # 🔹 去噪 + 光線標準化的預處理函數
 def preprocess_image(image_path, target_size=(256, 256)):
@@ -63,6 +45,36 @@ def preprocess_image(image_path, target_size=(256, 256)):
         print(f"發生錯誤：{e}")
         return None
 
+# 🔹 人臉偵測
+def extract_face(image_path):
+    img = face_recognition.load_image_file(image_path)
+    face_locations = face_recognition.face_locations(img)
+    
+    if len(face_locations) > 0:
+        top, right, bottom, left = face_locations[0]
+        face_img = img[top:bottom, left:right]
+        return face_img
+    else:
+        return None
+
+# 🔹 高通濾波
+def apply_highpass_filter(image):
+    gray_img = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    highpass = cv2.Laplacian(gray_img, cv2.CV_64F)
+    return highpass
+
+# 🔹 頻域分析 (FFT)
+def apply_fft(image):
+    f = np.fft.fft2(image)
+    fshift = np.fft.fftshift(f)
+    magnitude_spectrum = np.log(np.abs(fshift) + 1)
+    return magnitude_spectrum
+
+# 🔹 顏色空間轉換 (YCbCr)
+def convert_to_ycbcr(image):
+    ycbcr_image = cv2.cvtColor(image, cv2.COLOR_RGB2YCrCb)
+    return ycbcr_image
+
 # 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
 def preprocess_for_both_models(image_path):
     img = image.load_img(image_path, target_size=(256, 256))  # 調整大小
@@ -78,72 +90,39 @@ def preprocess_for_both_models(image_path):
 
 # 🔹 進行預測
 def predict_with_both_models(image_path):
-    try:
-        resnet_input, custom_input = preprocess_for_both_models(image_path)
-        
-        # 檢查預處理後的輸入形狀
-        print(f"ResNet input shape: {resnet_input.shape}")
-        
-        # ResNet50 預測
-        resnet_prediction = resnet_classifier.predict(resnet_input)
-        if resnet_prediction.ndim > 1:
-            resnet_prediction = resnet_prediction[0][0]  # 若返回多維，取出所需的部分
-        resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
-        
-        # 自訂 CNN 模型預測
-        custom_prediction = custom_model.predict(custom_input)[0][0]
-        custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
-        
-        return resnet_label, resnet_prediction, custom_label, custom_prediction
+    resnet_input, custom_input = preprocess_for_both_models(image_path)
     
-    except Exception as e:
-        print(f"發生錯誤：{e}")
-        return None, None, None, None
+    # ResNet50 預測
+    resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
+    resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
+    
+    # 自訂 CNN 模型預測
+    custom_prediction = custom_model.predict(custom_input)[0][0]
+    custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
+    
+    return resnet_label, resnet_prediction, custom_label, custom_prediction
 
 # 🔹 顯示圖片和預測結果
 def show_prediction(image_path):
-    resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(image_path)
+    # 嘗試擷取人臉
+    face_img = extract_face(image_path)
+    
+    if face_img is not None:
+        face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)  # 轉為 RGB 格式
+        resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(face_img)
+    else:
+        resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(image_path)
     
     # 顯示圖片
     img = image.load_img(image_path, target_size=(256, 256))
-    st.image(img, caption="原始圖片", use_container_width=True)
+    plt.imshow(img)
+    plt.axis('off')  # 隱藏座標軸
     
     # 顯示預測結果
-    if resnet_label and custom_label:
-        st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%} 信心分數)")
-        st.subheader(f"Custom CNN: {custom_label} ({custom_confidence:.2%} 信心分數)")
+    plt.title(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
+              f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
+    plt.show()
 
-# ==== Streamlit App 主體 ====
-st.title("🧠 Deepfake 圖片偵測器")
-
-tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
-
-# ---------- 圖片 ----------
-with tab1:
-    st.header("圖片偵測")
-    uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
-    if uploaded_image:
-        image_path = uploaded_image.name
-        with open(image_path, "wb") as f:
-            f.write(uploaded_image.getbuffer())
-        
-        show_prediction(image_path)
-
-# ---------- 影片 ----------
-with tab2:
-    st.header("影片偵測（每 10 幀抽圖）")
-    uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
-    if uploaded_video:
-        st.video(uploaded_video)
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-            tmp.write(uploaded_video.read())
-            video_path = tmp.name
-
-        st.info("🎬 擷取影片幀與進行預測中...")
-
-        frames = extract_frames(video_path, interval=10)
-        results = predict_frames(resnet_classifier, frames)
-
-        for idx, frame, label, confidence in results:
-            st.image(frame, caption=f"第 {idx} 幀 - {label} ({confidence:.2%})", use_container_width=True)
+# 🔹 使用模型進行預測
+image_path = 'test_image.jpg'  # 替換成你的測試圖片
+show_prediction(image_path)     # 顯示圖片與預測結果
