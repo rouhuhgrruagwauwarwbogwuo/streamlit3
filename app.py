@@ -150,11 +150,21 @@ def process_video(video_path):
 
 # Streamlit界面設置
 st.title('Deepfake 檢測系統')
+
+# 上傳圖片
+uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
+
+if uploaded_image is not None:
+    image_path = '/tmp/' + uploaded_image.name
+    with open(image_path, 'wb') as f:
+        f.write(uploaded_image.read())
+    show_prediction(image_path)
+
+# 上傳影片
 uploaded_video = st.file_uploader("上傳影片", type=["mp4", "avi", "mov"])
 
 if uploaded_video is not None:
     video_path = '/tmp/' + uploaded_video.name
     with open(video_path, 'wb') as f:
         f.write(uploaded_video.read())
-    
     process_video(video_path)
