@@ -12,6 +12,9 @@ from tensorflow.keras.applications.resnet50 import preprocess_input
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import Sequential
 
+# ==== 設置頁面配置 ====
+st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
+
 # 🔹 下載模型（只會下載一次）
 @st.cache_resource
 def download_model():
@@ -111,7 +114,6 @@ def show_prediction(image_path):
         st.subheader(f"Custom CNN: {custom_label} ({custom_confidence:.2%} 信心分數)")
 
 # ==== Streamlit App 主體 ====
-st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖片偵測器")
 
 tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
