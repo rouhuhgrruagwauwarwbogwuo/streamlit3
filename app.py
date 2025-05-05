@@ -86,7 +86,9 @@ def show_prediction(image_path):
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖片與影片偵測器")
 
+# 下載並顯示模型是否成功
 model = download_model()
+st.write("模型加載成功！")
 
 # ---------- 圖片偵測 ----------
 st.header("圖片偵測")
