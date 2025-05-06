@@ -2,111 +2,102 @@ import streamlit as st
 import numpy as np
 import cv2
 import os
-import requests
-from mtcnn import MTCNN
-from io import BytesIO
-from PIL import Image
-from tensorflow.keras.models import load_model, Sequential
-from tensorflow.keras.preprocessing import image
-from tensorflow.keras.applications import ResNet50
+from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.resnet50 import preprocess_input
-from tensorflow.keras.layers import Dense
+from tensorflow.keras.preprocessing import image
+from mtcnn import MTCNN
+import requests
+from PIL import Image
 
-# 頁面設定
-st.set_page_config(page_title="Deepfake 偵測", layout="wide")
+st.set_page_config(page_title="Deepfake 偵測", layout="centered")
 
-# 載入模型
 @st.cache_resource
 def load_models():
-    model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
-    response = requests.get(model_url)
-    model_path = '/tmp/deepfake_cnn_model.h5'
-    with open(model_path, 'wb') as f:
-        f.write(response.content)
-    custom_model = load_model(model_path)
-    
-    resnet_base = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
-    resnet_classifier = Sequential([resnet_base, Dense(1, activation='sigmoid')])
-    resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    # 下載自訂 CNN 模型
+    cnn_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
+    cnn_path = "/tmp/deepfake_cnn_model.h5"
+    if not os.path.exists(cnn_path):
+        r = requests.get(cnn_url)
+        with open(cnn_path, "wb") as f:
+            f.write(r.content)
+    custom_model = load_model(cnn_path)
 
-    return custom_model, resnet_classifier
+    # 下載 ResNet50 分類器（接 Dense 的那個）
+    resnet_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/resnet50_classifier.h5"
+    resnet_path = "/tmp/resnet50_classifier.h5"
+    if not os.path.exists(resnet_path):
+        r = requests.get(resnet_url)
+        with open(resnet_path, "wb") as f:
+            f.write(r.content)
+    resnet_model = load_model(resnet_path)
 
-custom_model, resnet_classifier = load_models()
-detector = MTCNN()
+    return custom_model, resnet_model
 
-# 人臉擷取
-def extract_face(image_np):
-    faces = detector.detect_faces(image_np)
-    if faces:
-        x, y, w, h = faces[0]['box']
-        return image_np[y:y+h, x:x+w]
-    return image_np
+custom_model, resnet_model = load_models()
 
-# 預處理
-def preprocess_for_both_models(img_array):
-    img_array = cv2.resize(img_array, (256, 256))
-    resnet_input = preprocess_input(np.expand_dims(img_array.copy(), axis=0))
-    custom_input = np.expand_dims(img_array / 255.0, axis=0)
+# 預處理圖片
+def preprocess_img_for_models(img_array):
+    img_resized = cv2.resize(img_array, (256, 256))
+    rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+    norm = rgb / 255.0
+    resnet_input = preprocess_input(np.expand_dims(rgb.astype('float32'), axis=0))
+    custom_input = np.expand_dims(norm, axis=0)
     return resnet_input, custom_input
 
-# 預測
-def predict(img_array):
-    resnet_input, custom_input = preprocess_for_both_models(img_array)
-    resnet_pred = resnet_classifier.predict(resnet_input)[0][0]
-    custom_pred = custom_model.predict(custom_input)[0][0]
-    resnet_label = "Deepfake" if resnet_pred > 0.5 else "Real"
-    custom_label = "Deepfake" if custom_pred > 0.5 else "Real"
-    return resnet_label, resnet_pred, custom_label, custom_pred
+# 人臉偵測
+def detect_face(img):
+    detector = MTCNN()
+    faces = detector.detect_faces(img)
+    if faces:
+        x, y, w, h = faces[0]["box"]
+        return img[y:y+h, x:x+w]
+    return img
 
 # 圖片預測
-def handle_image(uploaded_file):
-    img = Image.open(uploaded_file).convert('RGB')
-    img_np = np.array(img)
-    face = extract_face(img_np)
-    resnet_label, resnet_conf, custom_label, custom_conf = predict(face)
-    st.image(img, caption="上傳的圖片", use_container_width=True)
-    st.markdown(f"**ResNet50** 預測結果：`{resnet_label}` ({resnet_conf:.2%})")
-    st.markdown(f"**Custom CNN** 預測結果：`{custom_label}` ({custom_conf:.2%})")
+def predict_image(img_array):
+    face = detect_face(img_array)
+    resnet_input, custom_input = preprocess_img_for_models(face)
+    resnet_pred = float(resnet_model.predict(resnet_input)[0][0])
+    custom_pred = float(custom_model.predict(custom_input)[0][0])
+    return resnet_pred, custom_pred
 
-# 影片預測（每10幀顯示一張圖）
-def handle_video(uploaded_file):
-    video_path = f"/tmp/{uploaded_file.name}"
-    with open(video_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+# 顯示圖片預測結果
+def display_prediction(img, resnet_pred, custom_pred):
+    st.image(img, caption="上傳圖片", use_container_width=True)
+    st.markdown(f"🔍 **ResNet50 預測**：{'Deepfake' if resnet_pred > 0.5 else 'Real'} ({resnet_pred:.2%})")
+    st.markdown(f"🧠 **自訂 CNN 預測**：{'Deepfake' if custom_pred > 0.5 else 'Real'} ({custom_pred:.2%})")
 
-    cap = cv2.VideoCapture(video_path)
-    frame_count = 0
-    st_frame = st.empty()
-
+# 影片逐幀處理與顯示
+def process_video_file(video_bytes):
+    with open("/tmp/temp_video.mp4", "wb") as f:
+        f.write(video_bytes.read())
+    cap = cv2.VideoCapture("/tmp/temp_video.mp4")
+    frame_idx = 0
     while cap.isOpened():
         ret, frame = cap.read()
-        if not ret:
+        if not ret or frame_idx > 100:  # 限制最多顯示 100 幀
             break
-        frame_count += 1
-        if frame_count % 10 != 0:
-            continue
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        face = extract_face(rgb_frame)
-        resnet_label, resnet_conf, custom_label, custom_conf = predict(face)
-
-        # 繪製標籤
-        label = f"ResNet: {resnet_label} ({resnet_conf:.2%}) | CNN: {custom_label} ({custom_conf:.2%})"
-        cv2.putText(rgb_frame, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        st_frame.image(rgb_frame, caption=f"第 {frame_count} 幀", channels="RGB", use_column_width=True)
-
+        if frame_idx % 10 == 0:
+            resnet_pred, custom_pred = predict_image(frame)
+            label = f"ResNet: {'DF' if resnet_pred > 0.5 else 'Real'} ({resnet_pred:.1%}), CNN: {'DF' if custom_pred > 0.5 else 'Real'} ({custom_pred:.1%})"
+            frame = cv2.putText(frame, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption=f"第 {frame_idx} 幀", use_column_width=True)
+        frame_idx += 1
     cap.release()
 
-# Streamlit 介面
-st.title("🧠 Deepfake 圖片與影片偵測")
+# UI
+st.title("🧠 Deepfake 圖片與影片偵測器")
 
-tab1, tab2 = st.tabs(["🖼️ 上傳圖片", "🎬 上傳影片"])
+# 圖片上傳
+img_file = st.file_uploader("📸 上傳圖片", type=["jpg", "jpeg", "png"])
+if img_file:
+    img = Image.open(img_file).convert("RGB")
+    img_array = np.array(img)
+    resnet_pred, custom_pred = predict_image(cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR))
+    display_prediction(img, resnet_pred, custom_pred)
 
-with tab1:
-    image_file = st.file_uploader("請上傳圖片 (jpg, png)", type=["jpg", "jpeg", "png"])
-    if image_file:
-        handle_image(image_file)
-
-with tab2:
-    video_file = st.file_uploader("請上傳影片 (mp4, mov, avi)", type=["mp4", "mov", "avi"])
-    if video_file:
-        handle_video(video_file)
+# 影片上傳
+video_file = st.file_uploader("🎥 上傳影片", type=["mp4", "mov", "avi"])
+if video_file:
+    st.info("影片分析中，請稍候...")
+    process_video_file(video_file)
