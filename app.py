@@ -40,17 +40,9 @@ resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=
 
 # 🔹 載入自訂 CNN 模型
 model_path = download_model()
-
-# 檢查模型檔案是否成功下載並載入
 if model_path:
-    try:
-        custom_model = load_model(model_path)
-        print(f"成功載入模型：{model_path}")
-    except Exception as e:
-        print(f"載入模型時發生錯誤：{e}")
-        custom_model = None
+    custom_model = load_model(model_path)
 else:
-    print("模型下載失敗，無法載入自訂模型。")
     custom_model = None
 
 # 🔹 初始化 MTCNN 人臉檢測器
@@ -105,38 +97,55 @@ def preprocess_image(image_path, target_size=(256, 256)):
 
 # 🔹 人臉偵測，擷取人臉區域
 def extract_face(img):
-    img_rgb = cv2.cvtColor(np.array(img), cv2.COLOR_BGR2RGB)
-    faces = detector.detect_faces(img_rgb)
-    
-    if len(faces) > 0:
-        x, y, width, height = faces[0]['box']
-        face = img_rgb[y:y+height, x:x+width]
-        return Image.fromarray(face)
-    return None
+    try:
+        img_rgb = cv2.cvtColor(np.array(img), cv2.COLOR_BGR2RGB)
+        
+        # 確保圖像尺寸足夠大
+        if img_rgb.shape[0] < 20 or img_rgb.shape[1] < 20:
+            raise ValueError("圖像尺寸過小，無法進行人臉檢測")
+        
+        faces = detector.detect_faces(img_rgb)
+        if len(faces) > 0:
+            x, y, width, height = faces[0]['box']
+            face = img_rgb[y:y+height, x:x+width]
+            return Image.fromarray(face)
+        else:
+            print("未偵測到人臉")
+            return None
+    except Exception as e:
+        print(f"人臉偵測錯誤: {e}")
+        return None
 
 # 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
 def preprocess_for_both_models(image_path):
-    img = image.load_img(image_path, target_size=(256, 256))  # 調整大小
-    img_array = image.img_to_array(img)
-    
-    # ResNet50 需要特別的 preprocess_input
-    resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
-    
-    # 自訂 CNN 只需要正規化 (0~1)
-    custom_input = np.expand_dims(img_array / 255.0, axis=0)
-    
-    return resnet_input, custom_input
+    try:
+        img = image.load_img(image_path, target_size=(256, 256))  # 調整大小
+        img_array = image.img_to_array(img)
+        
+        # ResNet50 需要特別的 preprocess_input
+        resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
+        
+        # 自訂 CNN 只需要正規化 (0~1)
+        custom_input = np.expand_dims(img_array / 255.0, axis=0)
+        
+        return resnet_input, custom_input
+    except Exception as e:
+        print(f"圖片處理錯誤: {e}")
+        return None, None
 
 # 🔹 進行預測
 def predict_with_both_models(image_path):
     resnet_input, custom_input = preprocess_for_both_models(image_path)
+    
+    if resnet_input is None or custom_input is None:
+        return "處理錯誤", 0.0, "處理錯誤", 0.0
     
     # ResNet50 預測
     resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
     resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
     
     # 自訂 CNN 模型預測
-    custom_prediction = custom_model.predict(custom_input)[0][0] if custom_model else 0
+    custom_prediction = custom_model.predict(custom_input)[0][0]
     custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
     
     return resnet_label, resnet_prediction, custom_label, custom_prediction
@@ -204,4 +213,6 @@ with tab2:
                 frame_idx += 1
         cap.release()
 
-        # 顯
+        # 顯示影片結果
+        for idx, (resnet_label, resnet_confidence, custom_label, custom_confidence) in results:
+            st.image(frame_pil, caption=f"第 {idx} 幀 - {resnet_label} ({resnet_confidence:.2%})", use_column_width=True)
