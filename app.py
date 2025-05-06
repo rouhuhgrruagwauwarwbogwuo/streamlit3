@@ -1,103 +1,98 @@
 import streamlit as st
 import numpy as np
 import cv2
-import os
-from tensorflow.keras.models import load_model
-from tensorflow.keras.applications.resnet50 import preprocess_input
-from tensorflow.keras.preprocessing import image
-from mtcnn import MTCNN
 import requests
+import os
+from io import BytesIO
 from PIL import Image
+from tensorflow.keras.models import load_model
+from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input
+from tensorflow.keras.preprocessing.image import img_to_array
 
-st.set_page_config(page_title="Deepfake 偵測", layout="centered")
-
+# 載入模型的函數，含下載與錯誤處理
 @st.cache_resource
 def load_models():
-    # 下載自訂 CNN 模型
-    cnn_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
-    cnn_path = "/tmp/deepfake_cnn_model.h5"
-    if not os.path.exists(cnn_path):
-        r = requests.get(cnn_url)
-        with open(cnn_path, "wb") as f:
-            f.write(r.content)
-    custom_model = load_model(cnn_path)
+    # Custom CNN 模型（從 Hugging Face 下載）
+    model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
+    model_path = "/tmp/deepfake_cnn_model.h5"
 
-    # 下載 ResNet50 分類器（接 Dense 的那個）
-    resnet_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/resnet50_classifier.h5"
-    resnet_path = "/tmp/resnet50_classifier.h5"
-    if not os.path.exists(resnet_path):
-        r = requests.get(resnet_url)
-        with open(resnet_path, "wb") as f:
-            f.write(r.content)
-    resnet_model = load_model(resnet_path)
+    if not os.path.exists(model_path):
+        response = requests.get(model_url)
+        if response.status_code == 200:
+            with open(model_path, "wb") as f:
+                f.write(response.content)
+        else:
+            raise Exception(f"模型下載失敗，HTTP 狀態碼：{response.status_code}")
+
+    if os.path.exists(model_path):
+        try:
+            custom_model = load_model(model_path)
+        except OSError as e:
+            raise Exception(f"載入自訂模型失敗：{e}")
+    else:
+        raise FileNotFoundError(f"找不到模型檔案：{model_path}")
+
+    # ResNet50 模型
+    resnet_model = ResNet50(weights="imagenet", include_top=False, pooling='avg')
 
     return custom_model, resnet_model
 
-custom_model, resnet_model = load_models()
+# 圖片預處理函數（for Custom CNN）
+def preprocess_custom(image: np.ndarray, target_size=(224, 224)) -> np.ndarray:
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    enhanced = cv2.merge([enhanced, enhanced, enhanced])
+    resized = cv2.resize(enhanced, target_size)
+    normalized = resized / 255.0
+    return np.expand_dims(normalized, axis=0)
 
-# 預處理圖片
-def preprocess_img_for_models(img_array):
-    img_resized = cv2.resize(img_array, (256, 256))
-    rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
-    norm = rgb / 255.0
-    resnet_input = preprocess_input(np.expand_dims(rgb.astype('float32'), axis=0))
-    custom_input = np.expand_dims(norm, axis=0)
-    return resnet_input, custom_input
+# 圖片預處理函數（for ResNet50）
+def preprocess_resnet(image: np.ndarray, target_size=(224, 224)) -> np.ndarray:
+    resized = cv2.resize(image, target_size)
+    array = img_to_array(resized)
+    array = np.expand_dims(array, axis=0)
+    return preprocess_input(array)
 
-# 人臉偵測
-def detect_face(img):
-    detector = MTCNN()
-    faces = detector.detect_faces(img)
-    if faces:
-        x, y, w, h = faces[0]["box"]
-        return img[y:y+h, x:x+w]
-    return img
+# 預測函數
+def predict(image: np.ndarray, custom_model, resnet_model):
+    input_custom = preprocess_custom(image)
+    input_resnet = preprocess_resnet(image)
 
-# 圖片預測
-def predict_image(img_array):
-    face = detect_face(img_array)
-    resnet_input, custom_input = preprocess_img_for_models(face)
-    resnet_pred = float(resnet_model.predict(resnet_input)[0][0])
-    custom_pred = float(custom_model.predict(custom_input)[0][0])
-    return resnet_pred, custom_pred
+    # Custom CNN 預測
+    pred_custom = custom_model.predict(input_custom)[0][0]
 
-# 顯示圖片預測結果
-def display_prediction(img, resnet_pred, custom_pred):
-    st.image(img, caption="上傳圖片", use_container_width=True)
-    st.markdown(f"🔍 **ResNet50 預測**：{'Deepfake' if resnet_pred > 0.5 else 'Real'} ({resnet_pred:.2%})")
-    st.markdown(f"🧠 **自訂 CNN 預測**：{'Deepfake' if custom_pred > 0.5 else 'Real'} ({custom_pred:.2%})")
+    # ResNet50 特徵抽取 + 假設自訂分類器判斷（此處略作處理）
+    features = resnet_model.predict(input_resnet)
+    # 模擬分類分數（僅作展示）
+    pred_resnet = float(np.mean(features)) % 1.0
 
-# 影片逐幀處理與顯示
-def process_video_file(video_bytes):
-    with open("/tmp/temp_video.mp4", "wb") as f:
-        f.write(video_bytes.read())
-    cap = cv2.VideoCapture("/tmp/temp_video.mp4")
-    frame_idx = 0
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret or frame_idx > 100:  # 限制最多顯示 100 幀
-            break
-        if frame_idx % 10 == 0:
-            resnet_pred, custom_pred = predict_image(frame)
-            label = f"ResNet: {'DF' if resnet_pred > 0.5 else 'Real'} ({resnet_pred:.1%}), CNN: {'DF' if custom_pred > 0.5 else 'Real'} ({custom_pred:.1%})"
-            frame = cv2.putText(frame, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption=f"第 {frame_idx} 幀", use_column_width=True)
-        frame_idx += 1
-    cap.release()
+    return pred_custom, pred_resnet
 
-# UI
-st.title("🧠 Deepfake 圖片與影片偵測器")
+# Streamlit 主程式
+def main():
+    st.set_page_config(page_title="Deepfake 圖像偵測", layout="centered")
+    st.title("🕵️‍♂️ Deepfake 偵測器")
 
-# 圖片上傳
-img_file = st.file_uploader("📸 上傳圖片", type=["jpg", "jpeg", "png"])
-if img_file:
-    img = Image.open(img_file).convert("RGB")
-    img_array = np.array(img)
-    resnet_pred, custom_pred = predict_image(cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR))
-    display_prediction(img, resnet_pred, custom_pred)
+    uploaded_file = st.file_uploader("請上傳圖片", type=["jpg", "jpeg", "png"])
 
-# 影片上傳
-video_file = st.file_uploader("🎥 上傳影片", type=["mp4", "mov", "avi"])
-if video_file:
-    st.info("影片分析中，請稍候...")
-    process_video_file(video_file)
+    if uploaded_file:
+        image = Image.open(uploaded_file).convert("RGB")
+        image_np = np.array(image)
+        st.image(image, caption="上傳的圖片", use_container_width=True)
+
+        with st.spinner("正在載入模型並進行預測..."):
+            try:
+                custom_model, resnet_model = load_models()
+                pred_custom, pred_resnet = predict(image_np, custom_model, resnet_model)
+
+                st.subheader("🔍 預測結果")
+                st.write(f"🧠 Custom CNN 預測值：`{pred_custom:.4f}`")
+                st.write(f"📷 ResNet50 特徵預測模擬值：`{pred_resnet:.4f}`")
+
+                st.success("✅ 偵測完成")
+            except Exception as e:
+                st.error(f"❌ 發生錯誤：{str(e)}")
+
+if __name__ == "__main__":
+    main()
