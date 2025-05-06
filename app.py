@@ -53,14 +53,6 @@ if model_path:
 else:
     custom_model = None
 
-# 🔹 檢查 h5py 是否正常工作
-try:
-    import h5py
-    print(f"h5py 版本：{h5py.__version__}")
-except ImportError:
-    print("h5py 模組未安裝，請安裝該模組。")
-    custom_model = None
-
 # 🔹 初始化 MTCNN 人臉檢測器
 detector = MTCNN()
 
@@ -123,9 +115,8 @@ def extract_face(img):
     return None
 
 # 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
-def preprocess_for_both_models(image_path):
-    img = image.load_img(image_path, target_size=(256, 256))  # 調整大小
-    img_array = image.img_to_array(img)
+def preprocess_for_both_models(img):
+    img_array = np.array(img.resize((256, 256)))  # 調整大小為 256x256
     
     # ResNet50 需要特別的 preprocess_input
     resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
@@ -136,8 +127,8 @@ def preprocess_for_both_models(image_path):
     return resnet_input, custom_input
 
 # 🔹 進行預測
-def predict_with_both_models(image_path):
-    resnet_input, custom_input = preprocess_for_both_models(image_path)
+def predict_with_both_models(img):
+    resnet_input, custom_input = preprocess_for_both_models(img)
     
     # ResNet50 預測
     resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
@@ -150,11 +141,10 @@ def predict_with_both_models(image_path):
     return resnet_label, resnet_prediction, custom_label, custom_prediction
 
 # 🔹 顯示圖片和預測結果
-def show_prediction(image_path):
-    resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(image_path)
+def show_prediction(img):
+    resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(img)
     
     # 顯示圖片
-    img = image.load_img(image_path, target_size=(256, 256))
     st.image(img, caption="預測圖片", use_container_width=True)
     
     # 顯示預測結果
@@ -182,7 +172,7 @@ with tab1:
             show_prediction(face_img)
         else:
             st.write("未偵測到人臉，使用整體圖片進行預測")
-            show_prediction(uploaded_image)
+            show_prediction(pil_img)
 
 # ---------- 影片 ----------
 with tab2:
@@ -208,10 +198,14 @@ with tab2:
                 face_img = extract_face(frame_pil)
                 if face_img:
                     result = predict_with_both_models(face_img)
-                    results.append((frame_idx, result))
+                    results.append((result, frame_idx))
                 frame_idx += 1
-        cap.release()
 
-        # 顯示影片結果
-        for idx, (resnet_label, resnet_confidence, custom_label, custom_confidence) in results:
-            st.image(frame_pil, caption=f"第 {idx} 幀 - {resnet_label} ({resnet_confidence:.2%})", use_container_width=True)
+        cap.release()
+        os.remove(video_path)
+
+        for result, idx in results:
+            st.write(f"第 {idx} 幀結果:")
+            resnet_label, resnet_confidence, custom_label, custom_confidence = result
+            st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})")
+            st.subheader(f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
