@@ -14,7 +14,7 @@ from tensorflow.keras.preprocessing.image import img_to_array
 def load_models():
     # Custom CNN 模型（從 Hugging Face 下載）
     model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
-    model_path = "/tmp/deepfake_cnn_model.h5"
+    model_path = "deepfake_cnn_model.h5"
 
     if not os.path.exists(model_path):
         response = requests.get(model_url)
