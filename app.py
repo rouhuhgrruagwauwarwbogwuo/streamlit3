@@ -11,23 +11,27 @@ from PIL import Image
 from mtcnn import MTCNN
 import tempfile
 import os
+import requests
 from huggingface_hub import hf_hub_download
 
-# 下載模型的函數
+# 檢查並下載模型檔案
 def download_model():
-    model_repo = "wuwuwu123123/deepfakemodel2"  # Hugging Face Hub 上的模型 repo 名稱
-    model_filename = "deepfake_cnn_model.h5"  # 模型檔案名稱
+    model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
+    model_filename = "deepfake_cnn_model.h5"
+    
+    # 如果模型檔案不存在，則下載
+    if not os.path.exists(model_filename):
+        response = requests.get(model_url)
+        if response.status_code == 200:
+            with open(model_filename, "wb") as f:
+                f.write(response.content)
+            print("模型檔案已成功下載！")
+        else:
+            print(f"下載失敗，狀態碼：{response.status_code}")
+            return None
+    return model_filename
 
-    try:
-        # 下載模型檔案
-        model_path = hf_hub_download(repo_id=model_repo, filename=model_filename)
-        print("模型檔案已成功下載！")
-        return model_path
-    except Exception as e:
-        print(f"下載失敗: {e}")
-        return None
-
-# 🔹 載入 ResNet50 模型
+# 載入 ResNet50 模型
 resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
 resnet_classifier = Sequential([
     resnet_model,
@@ -35,23 +39,23 @@ resnet_classifier = Sequential([
 ])
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
-# 🔹 載入自訂 CNN 模型
+# 載入自訂 CNN 模型
 model_path = download_model()
 if model_path:
     custom_model = load_model(model_path)
 else:
     custom_model = None
 
-# 🔹 初始化 MTCNN 人臉檢測器
+# 初始化 MTCNN 人臉檢測器
 detector = MTCNN()
 
-# 🔹 預處理函數 - 高通濾波（Edge Enhancement）
+# 預處理函數 - 高通濾波（Edge Enhancement）
 def high_pass_filter(img_array):
     kernel = np.array([[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]])
     filtered_img = cv2.filter2D(img_array, -1, kernel)
     return filtered_img
 
-# 🔹 預處理函數 - 頻域特徵分析 (FFT)
+# 預處理函數 - 頻域特徵分析 (FFT)
 def fft_filter(img_array):
     gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
     f = np.fft.fft2(gray)
@@ -59,7 +63,7 @@ def fft_filter(img_array):
     magnitude_spectrum = np.log(np.abs(fshift) + 1)
     return magnitude_spectrum
 
-# 🔹 顏色空間轉換
+# 顏色空間轉換
 def convert_to_ycbcr(img_array):
     img_ycbcr = cv2.cvtColor(img_array, cv2.COLOR_RGB2YCrCb)
     return img_ycbcr
@@ -68,7 +72,7 @@ def convert_to_lab(img_array):
     img_lab = cv2.cvtColor(img_array, cv2.COLOR_RGB2LAB)
     return img_lab
 
-# 🔹 CLAHE + 銳化預處理
+# CLAHE + 銳化預處理
 def preprocess_image(image_path, target_size=(256, 256)):
     try:
         img = image.load_img(image_path, target_size=target_size)
@@ -92,7 +96,7 @@ def preprocess_image(image_path, target_size=(256, 256)):
         print(f"發生錯誤：{e}")
         return None
 
-# 🔹 人臉偵測，擷取人臉區域
+# 人臉偵測，擷取人臉區域
 def extract_face(img):
     img_rgb = cv2.cvtColor(np.array(img), cv2.COLOR_BGR2RGB)
     faces = detector.detect_faces(img_rgb)
@@ -103,11 +107,11 @@ def extract_face(img):
         return Image.fromarray(face)
     return None
 
-# 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
-def preprocess_for_both_models(image_path):
-    img = image.load_img(image_path, target_size=(256, 256))  # 調整大小
-    img_array = image.img_to_array(img)
-    
+# 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
+def preprocess_for_both_models(pil_img):
+    img_array = np.array(pil_img.resize((256, 256)))  # Resize to the required dimensions
+    img_array = img_array.astype('float32')
+
     # ResNet50 需要特別的 preprocess_input
     resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
     
@@ -116,9 +120,9 @@ def preprocess_for_both_models(image_path):
     
     return resnet_input, custom_input
 
-# 🔹 進行預測
-def predict_with_both_models(image_path):
-    resnet_input, custom_input = preprocess_for_both_models(image_path)
+# 進行預測
+def predict_with_both_models(pil_img):
+    resnet_input, custom_input = preprocess_for_both_models(pil_img)
     
     # ResNet50 預測
     resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
@@ -130,19 +134,18 @@ def predict_with_both_models(image_path):
     
     return resnet_label, resnet_prediction, custom_label, custom_prediction
 
-# 🔹 顯示圖片和預測結果
-def show_prediction(image_path):
-    resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(image_path)
+# 顯示圖片和預測結果
+def show_prediction(image_obj):
+    resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(image_obj)
     
     # 顯示圖片
-    img = image.load_img(image_path, target_size=(256, 256))
-    st.image(img, caption="預測圖片", use_column_width=True)
+    st.image(image_obj, caption="預測圖片", use_container_width=True)  # 使用 use_container_width 替代 use_column_width
     
     # 顯示預測結果
     st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
                  f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
 
-# 🔹 Streamlit 主應用程式
+# Streamlit 主應用程式
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖片與影片偵測器")
 
@@ -154,18 +157,18 @@ with tab1:
     uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
     if uploaded_image:
         pil_img = Image.open(uploaded_image).convert("RGB")
-        st.image(pil_img, caption="原始圖片", use_column_width=True)
+        st.image(pil_img, caption="原始圖片", use_container_width=True)
 
         # 嘗試擷取人臉區域
         face_img = extract_face(pil_img)
         if face_img:
-            st.image(face_img, caption="偵測到的人臉", use_column_width=True)
-            show_prediction(face_img)
+            st.image(face_img, caption="偵測到的人臉", use_container_width=True)
+            show_prediction(face_img)  # Pass the PIL image directly to the function
         else:
             st.write("未偵測到人臉，使用整體圖片進行預測")
-            show_prediction(uploaded_image)
+            show_prediction(pil_img)
 
-# ---------- 影片 ----------
+# ---------- 影片 ---------- 
 with tab2:
     st.header("影片偵測（每 10 幀抽圖）")
     uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
@@ -195,4 +198,4 @@ with tab2:
 
         # 顯示影片結果
         for idx, (resnet_label, resnet_confidence, custom_label, custom_confidence) in results:
-            st.image(frame_pil, caption=f"第 {idx} 幀 - {resnet_label} ({resnet_confidence:.2%})", use_column_width=True)
+            st.image(frame_pil, caption=f"第 {idx} 幀 - {resnet_label} ({resnet_confidence:.2%})", use_container_width=True)
