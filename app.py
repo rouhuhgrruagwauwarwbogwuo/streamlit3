@@ -34,15 +34,23 @@ def download_model():
 resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
 resnet_classifier = Sequential([
     resnet_model,
-    Dense(1, activation='sigmoid')  # 1 個輸出節點（0: 真實, 1: 假）   
+    Dense(1, activation='sigmoid')  # 1 個輸出節點（0: 真實, 1: 假）
 ])
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
 # 🔹 載入自訂 CNN 模型
 model_path = download_model()
+
+# 檢查模型檔案是否成功下載並載入
 if model_path:
-    custom_model = load_model(model_path)
+    try:
+        custom_model = load_model(model_path)
+        print(f"成功載入模型：{model_path}")
+    except Exception as e:
+        print(f"載入模型時發生錯誤：{e}")
+        custom_model = None
 else:
+    print("模型下載失敗，無法載入自訂模型。")
     custom_model = None
 
 # 🔹 初始化 MTCNN 人臉檢測器
@@ -128,7 +136,7 @@ def predict_with_both_models(image_path):
     resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
     
     # 自訂 CNN 模型預測
-    custom_prediction = custom_model.predict(custom_input)[0][0]
+    custom_prediction = custom_model.predict(custom_input)[0][0] if custom_model else 0
     custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
     
     return resnet_label, resnet_prediction, custom_label, custom_prediction
@@ -151,7 +159,7 @@ st.title("🧠 Deepfake 圖片與影片偵測器")
 
 tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
 
-# ---------- 圖片 ----------
+# ---------- 圖片 ---------- 
 with tab1:
     st.header("圖片偵測")
     uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
@@ -168,7 +176,7 @@ with tab1:
             st.write("未偵測到人臉，使用整體圖片進行預測")
             show_prediction(uploaded_image)
 
-# ---------- 影片 ----------
+# ---------- 影片 ---------- 
 with tab2:
     st.header("影片偵測（每 10 幀抽圖）")
     uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
@@ -196,6 +204,4 @@ with tab2:
                 frame_idx += 1
         cap.release()
 
-        # 顯示影片結果
-        for idx, (resnet_label, resnet_confidence, custom_label, custom_confidence) in results:
-            st.image(frame_pil, caption=f"第 {idx} 幀 - {resnet_label} ({resnet_confidence:.2%})", use_column_width=True)
+        # 顯
