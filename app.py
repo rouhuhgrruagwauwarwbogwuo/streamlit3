@@ -34,7 +34,7 @@ def download_model():
 resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
 resnet_classifier = Sequential([
     resnet_model,
-    Dense(1, activation='sigmoid')  # 1 個輸出節點（0: 真實, 1: 假）
+    Dense(1, activation='sigmoid')  # 1 個輸出節點（0: 真實, 1: 假）   
 ])
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
