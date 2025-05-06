@@ -19,7 +19,6 @@ def download_model():
     model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
     model_filename = "deepfake_cnn_model.h5"
     
-    # 如果模型檔案不存在，則下載
     if not os.path.exists(model_filename):
         response = requests.get(model_url)
         if response.status_code == 200:
@@ -34,10 +33,10 @@ def download_model():
     return model_filename
 
 # 🔹 載入 ResNet50 模型
-resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
+resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
 resnet_classifier = Sequential([
     resnet_model,
-    Dense(1, activation='sigmoid')  # 1 個輸出節點（0: 真實, 1: 假）   
+    Dense(1, activation='sigmoid')  
 ])
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
@@ -56,74 +55,37 @@ else:
 # 🔹 初始化 MTCNN 人臉檢測器
 detector = MTCNN()
 
-# 🔹 預處理函數 - 高通濾波（Edge Enhancement）
-def high_pass_filter(img_array):
-    kernel = np.array([[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]])
-    filtered_img = cv2.filter2D(img_array, -1, kernel)
-    return filtered_img
-
-# 🔹 預處理函數 - 頻域特徵分析 (FFT)
-def fft_filter(img_array):
-    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-    f = np.fft.fft2(gray)
-    fshift = np.fft.fftshift(f)
-    magnitude_spectrum = np.log(np.abs(fshift) + 1)
-    return magnitude_spectrum
-
-# 🔹 顏色空間轉換
-def convert_to_ycbcr(img_array):
-    img_ycbcr = cv2.cvtColor(img_array, cv2.COLOR_RGB2YCrCb)
-    return img_ycbcr
-
-def convert_to_lab(img_array):
-    img_lab = cv2.cvtColor(img_array, cv2.COLOR_RGB2LAB)
-    return img_lab
-
-# 🔹 CLAHE + 銳化預處理
-def preprocess_image(image_path, target_size=(256, 256)):
-    try:
-        img = image.load_img(image_path, target_size=target_size)
-        img_array = image.img_to_array(img).astype('uint8')
-
-        # CLAHE (Contrast Limited Adaptive Histogram Equalization)
-        img_gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        img_gray = clahe.apply(img_gray)
-
-        # 轉回 RGB
-        img_array = cv2.cvtColor(img_gray, cv2.COLOR_GRAY2RGB)
-        img_array = img_array / 255.0  # 標準化影像 (0~1)
-        
-        # 高通濾波增強
-        img_array = high_pass_filter(img_array)
-        
-        return np.expand_dims(img_array, axis=0)
-    
-    except Exception as e:
-        print(f"發生錯誤：{e}")
-        return None
-
-# 🔹 人臉偵測，擷取人臉區域
-def extract_face(img):
-    img_rgb = cv2.cvtColor(np.array(img), cv2.COLOR_BGR2RGB)
-    faces = detector.detect_faces(img_rgb)
-    
-    if len(faces) > 0:
-        x, y, width, height = faces[0]['box']
-        face = img_rgb[y:y+height, x:x+width]
-        return Image.fromarray(face)
-    return None
+# 🔹 中心裁切函數 - 避免高清圖片影響 ResNet50 預測
+def center_crop(img, target_size=(224, 224)):
+    width, height = img.size
+    new_width, new_height = target_size
+    left = (width - new_width) // 2
+    top = (height - new_height) // 2
+    right = left + new_width
+    bottom = top + new_height
+    return img.crop((left, top, right, bottom))
 
 # 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
 def preprocess_for_both_models(img):
-    img_array = np.array(img.resize((256, 256)))  # 調整大小為 256x256
-    
-    # ResNet50 需要特別的 preprocess_input
+    # 1️⃣ **高清圖處理：LANCZOS 縮圖**
+    img = img.resize((256, 256), Image.Resampling.LANCZOS)
+
+    # 2️⃣ **ResNet50 必須 224x224**
+    img = center_crop(img, (224, 224))
+
+    img_array = np.array(img)  # 轉為 numpy array
+
+    # 3️⃣ **可選：對 ResNet50 做 Gaussian Blur**
+    apply_blur = True  # 🚀 這裡可以開關
+    if apply_blur:
+        img_array = cv2.GaussianBlur(img_array, (3, 3), 0)
+
+    # 4️⃣ **ResNet50 特定預處理**
     resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
-    
-    # 自訂 CNN 只需要正規化 (0~1)
+
+    # 5️⃣ **自訂 CNN 正規化 (0~1)**
     custom_input = np.expand_dims(img_array / 255.0, axis=0)
-    
+
     return resnet_input, custom_input
 
 # 🔹 進行預測
@@ -134,7 +96,7 @@ def predict_with_both_models(img):
     resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
     resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
     
-    # 自訂 CNN 模型預測
+    # 自訂 CNN 預測
     custom_prediction = custom_model.predict(custom_input)[0][0] if custom_model else 0
     custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
     
@@ -172,7 +134,7 @@ with tab1:
         face_img = extract_face(pil_img)
         if face_img:
             st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-            show_prediction(face_img)  # 只顯示第一張預測結果
+            show_prediction(face_img)  
         else:
             st.write("未偵測到人臉，使用整體圖片進行預測")
             show_prediction(pil_img)
@@ -191,18 +153,17 @@ with tab2:
         st.info("🎬 擷取影片幀與進行預測中...")
         cap = cv2.VideoCapture(video_path)
         frame_idx = 0
-        result_displayed = False  # 只顯示一次結果
 
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
-            if frame_idx % 10 == 0:  # 每 10 幀進行一次處理
+            if frame_idx % 10 == 0:
                 frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                 face_img = extract_face(frame_pil)
                 if face_img:
                     st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-                    show_prediction(face_img)  # 只顯示第一張預測結果
-                    break  # 停止循環，因為只顯示第一幀結果
+                    show_prediction(face_img)
+                    break  
             frame_idx += 1
         cap.release()
