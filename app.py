@@ -147,6 +147,9 @@ def show_prediction(img):
     # 顯示未經處理的圖片
     st.image(img, caption="原始圖片", use_container_width=True)
     
+    # 顯示偵測到的人臉並縮小圖片
+    st.image(img, caption="偵測到的人臉", use_container_width=False, width=300)
+    
     # 顯示預測結果
     st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
                  f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
@@ -168,7 +171,7 @@ with tab1:
         # 嘗試擷取人臉區域
         face_img = extract_face(pil_img)
         if face_img:
-            st.image(face_img, caption="偵測到的人臉", use_container_width=True)
+            st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
             show_prediction(face_img)  # 只顯示第一張預測結果
         else:
             st.write("未偵測到人臉，使用整體圖片進行預測")
@@ -198,7 +201,7 @@ with tab2:
                 frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                 face_img = extract_face(frame_pil)
                 if face_img:
-                    st.image(face_img, caption="偵測到的人臉", use_container_width=True)
+                    st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
                     show_prediction(face_img)  # 只顯示第一張預測結果
                     break  # 停止循環，因為只顯示第一幀結果
             frame_idx += 1
