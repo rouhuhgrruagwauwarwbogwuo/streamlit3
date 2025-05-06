@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import streamlit as st
 import cv2
@@ -10,7 +11,24 @@ from tensorflow.keras.models import Sequential
 from PIL import Image
 from mtcnn import MTCNN
 import tempfile
-import os
+import requests
+
+# 🔹 下載模型的函數
+def download_from_hf(repo_id, filename, save_path):
+    url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}"
+    if not os.path.exists(save_path):
+        with open(save_path, "wb") as f:
+            response = requests.get(url)
+            f.write(response.content)
+            print(f"✅ 下載完成：{save_path}")
+
+# 🔹 設定 Hugging Face 模型資訊
+HF_REPO = "wuwuwu123123/deepfakemodel2"
+MODEL_FILE = "deepfake_cnn_model.h5"
+MODEL_PATH = os.path.join(os.getcwd(), MODEL_FILE)
+
+# 🔹 下載模型（若尚未存在）
+download_from_hf(HF_REPO, MODEL_FILE, MODEL_PATH)
 
 # 🔹 載入 ResNet50 模型
 resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
@@ -21,7 +39,7 @@ resnet_classifier = Sequential([
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
 # 🔹 載入自訂 CNN 模型
-custom_model = load_model('deepfake_cnn_model.h5')
+custom_model = load_model(MODEL_PATH)
 
 # 🔹 初始化 MTCNN 人臉檢測器
 detector = MTCNN()
@@ -129,7 +147,7 @@ st.title("🧠 Deepfake 圖片與影片偵測器")
 
 tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
 
-# ---------- 圖片 ----------
+# ---------- 圖片 ---------- 
 with tab1:
     st.header("圖片偵測")
     uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
@@ -146,7 +164,7 @@ with tab1:
             st.write("未偵測到人臉，使用整體圖片進行預測")
             show_prediction(uploaded_image)
 
-# ---------- 影片 ----------
+# ---------- 影片 ---------- 
 with tab2:
     st.header("影片偵測（每 10 幀抽圖）")
     uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
