@@ -11,30 +11,27 @@ from PIL import Image
 from mtcnn import MTCNN
 import tempfile
 import os
-import requests
+from huggingface_hub import hf_hub_download
 
-# 檢查並下載模型檔案
+# 下載模型的函數
 def download_model():
-    model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
-    model_filename = "deepfake_cnn_model.h5"
-    
-    # 如果模型檔案不存在，則下載
-    if not os.path.exists(model_filename):
-        response = requests.get(model_url)
-        if response.status_code == 200:
-            with open(model_filename, "wb") as f:
-                f.write(response.content)
-            print("模型檔案已成功下載！")
-        else:
-            print(f"下載失敗，狀態碼：{response.status_code}")
-            return None
-    return model_filename
+    model_repo = "wuwuwu123123/deepfakemodel2"  # Hugging Face Hub 上的模型 repo 名稱
+    model_filename = "deepfake_cnn_model.h5"  # 模型檔案名稱
+
+    try:
+        # 下載模型檔案
+        model_path = hf_hub_download(repo_id=model_repo, filename=model_filename)
+        print("模型檔案已成功下載！")
+        return model_path
+    except Exception as e:
+        print(f"下載失敗: {e}")
+        return None
 
 # 🔹 載入 ResNet50 模型
 resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(256, 256, 3))
 resnet_classifier = Sequential([
     resnet_model,
-    Dense(1, activation='sigmoid')  # 1 個輸出節點（0: 真實, 1: 假）
+    Dense(1, activation='sigmoid')  # 1 個輸出節點（0: 真實, 1: 假）   
 ])
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
@@ -97,48 +94,31 @@ def preprocess_image(image_path, target_size=(256, 256)):
 
 # 🔹 人臉偵測，擷取人臉區域
 def extract_face(img):
-    try:
-        img_rgb = cv2.cvtColor(np.array(img), cv2.COLOR_BGR2RGB)
-        
-        # 確保圖像尺寸足夠大
-        if img_rgb.shape[0] < 20 or img_rgb.shape[1] < 20:
-            raise ValueError("圖像尺寸過小，無法進行人臉檢測")
-        
-        faces = detector.detect_faces(img_rgb)
-        if len(faces) > 0:
-            x, y, width, height = faces[0]['box']
-            face = img_rgb[y:y+height, x:x+width]
-            return Image.fromarray(face)
-        else:
-            print("未偵測到人臉")
-            return None
-    except Exception as e:
-        print(f"人臉偵測錯誤: {e}")
-        return None
+    img_rgb = cv2.cvtColor(np.array(img), cv2.COLOR_BGR2RGB)
+    faces = detector.detect_faces(img_rgb)
+    
+    if len(faces) > 0:
+        x, y, width, height = faces[0]['box']
+        face = img_rgb[y:y+height, x:x+width]
+        return Image.fromarray(face)
+    return None
 
 # 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
 def preprocess_for_both_models(image_path):
-    try:
-        img = image.load_img(image_path, target_size=(256, 256))  # 調整大小
-        img_array = image.img_to_array(img)
-        
-        # ResNet50 需要特別的 preprocess_input
-        resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
-        
-        # 自訂 CNN 只需要正規化 (0~1)
-        custom_input = np.expand_dims(img_array / 255.0, axis=0)
-        
-        return resnet_input, custom_input
-    except Exception as e:
-        print(f"圖片處理錯誤: {e}")
-        return None, None
+    img = image.load_img(image_path, target_size=(256, 256))  # 調整大小
+    img_array = image.img_to_array(img)
+    
+    # ResNet50 需要特別的 preprocess_input
+    resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
+    
+    # 自訂 CNN 只需要正規化 (0~1)
+    custom_input = np.expand_dims(img_array / 255.0, axis=0)
+    
+    return resnet_input, custom_input
 
 # 🔹 進行預測
 def predict_with_both_models(image_path):
     resnet_input, custom_input = preprocess_for_both_models(image_path)
-    
-    if resnet_input is None or custom_input is None:
-        return "處理錯誤", 0.0, "處理錯誤", 0.0
     
     # ResNet50 預測
     resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
@@ -185,7 +165,7 @@ with tab1:
             st.write("未偵測到人臉，使用整體圖片進行預測")
             show_prediction(uploaded_image)
 
-# ---------- 影片 ---------- 
+# ---------- 影片 ----------
 with tab2:
     st.header("影片偵測（每 10 幀抽圖）")
     uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
