@@ -5,3 +5,4 @@ keras
 mtcnn
 Pillow
 numpy
+huggingface_hub
