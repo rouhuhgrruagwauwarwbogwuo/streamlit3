@@ -74,6 +74,10 @@ def preprocess_for_both_models(img):
     # 5️⃣ **自訂 CNN 正規化 (0~1)**
     custom_input = np.expand_dims(img_array / 255.0, axis=0)
 
+    # 確保自訂 CNN 的輸入維度是正確的
+    if custom_input.shape != (1, 224, 224, 3):
+        custom_input = np.resize(custom_input, (1, 224, 224, 3))  # 調整尺寸
+
     return resnet_input, custom_input
 
 # 🔹 進行預測
