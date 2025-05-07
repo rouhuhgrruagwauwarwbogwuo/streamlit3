@@ -166,4 +166,4 @@ with tab2:
                     show_prediction(face_img)
                     break  
             frame_idx += 1
-        cap.release()   
+        cap.release()
