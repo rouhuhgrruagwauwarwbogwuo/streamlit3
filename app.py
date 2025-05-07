@@ -34,7 +34,7 @@ def download_model():
 
 # 🔹 載入 ResNet50 模型
 resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
-resnet_classifier = Sequential([ 
+resnet_classifier = Sequential([
     resnet_model,
     Dense(1, activation='sigmoid')  
 ])
@@ -84,7 +84,7 @@ def preprocess_for_both_models(img):
     resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
 
     # 5️⃣ **自訂 CNN 正規化 (0~1)**
-    custom_input = np.expand_dims(img_array / 255.0, axis=0)
+    custom_input = np.expand_dims(img_array / 255.0, axis=0)  # 增加批次維度 (1, height, width, channels)
 
     return resnet_input, custom_input
 
@@ -97,43 +97,31 @@ def predict_with_both_models(img):
     resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
     
     # 自訂 CNN 預測
-    custom_prediction = custom_model.predict(custom_input)[0][0] if custom_model else 0
+    if custom_model:
+        try:
+            custom_prediction = custom_model.predict(custom_input)[0][0]
+        except Exception as e:
+            st.error(f"自訂模型預測時發生錯誤：{e}")
+            custom_prediction = 0
+    else:
+        custom_prediction = 0
     custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
     
     return resnet_label, resnet_prediction, custom_label, custom_prediction
 
-# 🔹 擷取圖片中的人臉區域
-def extract_face(img):
-    if isinstance(img, Image.Image):
-        result = detector.detect_faces(np.array(img))
-        
-        if result:
-            x, y, width, height = result[0]['box']
-            face_img = img.crop((x, y, x + width, y + height))  # 擷取人臉區域
-            return face_img
-        else:
-            st.warning("未能偵測到人臉，返回原始圖片")
-            return img  # 如果未偵測到人臉，返回原始圖片
-    else:
-        st.error("提供的圖像不是有效的PIL圖像。")
-        return None
-
 # 🔹 顯示圖片和預測結果
 def show_prediction(img):
-    if img:
-        resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(img)
-
-        # 顯示未經處理的圖片
-        st.image(img, caption="原始圖片", use_container_width=True)
-        
-        # 顯示偵測到的人臉並縮小圖片
-        st.image(img, caption="偵測到的人臉或原圖", use_container_width=False, width=300)
-        
-        # 顯示預測結果
-        st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
-                     f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
-    else:
-        st.error("無效的圖像，無法顯示預測結果。")
+    resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(img)
+    
+    # 顯示未經處理的圖片
+    st.image(img, caption="原始圖片", use_container_width=True)
+    
+    # 顯示偵測到的人臉並縮小圖片
+    st.image(img, caption="偵測到的人臉", use_container_width=False, width=300)
+    
+    # 顯示預測結果
+    st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
+                 f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
 
 # 🔹 Streamlit 主應用程式
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -141,7 +129,7 @@ st.title("🧠 Deepfake 圖片與影片偵測器")
 
 tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
 
-# ---------- 圖片 ----------
+# ---------- 圖片 ----------  
 with tab1:
     st.header("圖片偵測")
     uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
@@ -152,10 +140,13 @@ with tab1:
         # 嘗試擷取人臉區域
         face_img = extract_face(pil_img)
         if face_img:
-            st.image(face_img, caption="偵測到的人臉或原圖", use_container_width=False, width=300)
-            show_prediction(face_img)
+            st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
+            show_prediction(face_img)  
+        else:
+            st.write("未偵測到人臉，使用整體圖片進行預測")
+            show_prediction(pil_img)
 
-# ---------- 影片 ----------
+# ---------- 影片 ----------  
 with tab2:
     st.header("影片偵測（只顯示第一張預測結果）")
     uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
@@ -178,7 +169,7 @@ with tab2:
                 frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                 face_img = extract_face(frame_pil)
                 if face_img:
-                    st.image(face_img, caption="偵測到的人臉或原圖", use_container_width=False, width=300)
+                    st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
                     show_prediction(face_img)
                     break  
             frame_idx += 1
