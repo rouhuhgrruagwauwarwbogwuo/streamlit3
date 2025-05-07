@@ -4,33 +4,25 @@ import cv2
 import tensorflow as tf
 from PIL import Image
 from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
-import requests
 from tensorflow.keras.models import load_model
+import requests
 from io import BytesIO
-import os
 
-# 載入 ResNet50 和自訓練的模型
+st.set_page_config(page_title="Deepfake 偵測", layout="centered")
+st.title("Deepfake 偵測工具 (價值增強 + FFT + YCbCr)")
+
+# 載入 ResNet50
 resnet_model = ResNet50(weights='imagenet')
 
-# 從 Hugging Face 下載並加載自訓練模型
-def download_and_load_model_from_huggingface(model_url, model_path='deepfake_cnn_model.h5'):
-    # 下載模型文件
+# 載入 custom CNN 模型
+def load_custom_model_from_huggingface(model_url):
     response = requests.get(model_url)
-    if response.status_code == 200:
-        # 將模型保存到本地
-        with open(model_path, 'wb') as f:
-            f.write(response.content)
-        # 加載本地模型
-        model = load_model(model_path)
-        return model
-    else:
-        raise Exception(f"Failed to download model from Hugging Face, status code {response.status_code}")
+    model = load_model(BytesIO(response.content))
+    return model
 
-# 自訓練模型的 Hugging Face URL
+# 使用您提供的 Hugging Face 模型 URL
 custom_model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
-
-# 嘗試加載自訓練模型
-custom_model = download_and_load_model_from_huggingface(custom_model_url)
+custom_model = load_custom_model_from_huggingface(custom_model_url)
 
 # 圖像中央補白補滿 target size
 def center_crop(img, target_size=(224, 224)):
@@ -93,12 +85,6 @@ def preprocess_advanced(img):
 
     return final_input, enhanced_img, cbcr_3ch
 
-# 去除黑色區域的處理（替換黑色區域為白色）
-def remove_black_background(img_array):
-    # 假設黑色區域為 0
-    img_array[img_array == 0] = 255
-    return img_array
-
 # ResNet50 預測
 def predict_with_resnet(img_tensor):
     predictions = resnet_model.predict(img_tensor)
@@ -107,15 +93,25 @@ def predict_with_resnet(img_tensor):
     confidence = float(decoded[0][2])
     return label, confidence, decoded
 
-# 自訓練模型預測（作為輔助參考）
+# Custom model 預測
 def predict_with_custom_model(img_tensor):
-    # 確保模型接受的是符合形狀的數據
+    # 檢查自訓練模型的輸入形狀
+    print(f"Custom Model Input Shape: {custom_model.input_shape}")
+    
+    # 檢查 img_tensor 的形狀
+    print(f"Input tensor shape before expand_dims: {img_tensor.shape}")
+    
+    # 如果模型期望的形狀是 (batch_size, 224, 224, 3)，確保圖片形狀正確
     img_tensor = np.expand_dims(img_tensor, axis=0)  # 添加批次維度
+    print(f"Input tensor shape after expand_dims: {img_tensor.shape}")
+    
     img_tensor = img_tensor.astype('float32') / 255.0  # 轉換為 [0, 1] 範圍
+    print(f"Input tensor dtype: {img_tensor.dtype}")
+    
     predictions = custom_model.predict(img_tensor)
     return predictions
 
-# 上傳圖片
+# 使用 Streamlit 進行圖片上傳
 uploaded_file = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
@@ -125,36 +121,27 @@ if uploaded_file:
     # 預處理圖片
     resnet_input, processed_img, cbcr_img = preprocess_advanced(pil_img)
 
-    # 去除黑色區域
-    processed_img_no_black = remove_black_background(processed_img)
+    # 使用 ResNet50 預測
+    label, confidence, decoded = predict_with_resnet(resnet_input)
 
-    # 預測 ResNet50
-    resnet_label, resnet_confidence, _ = predict_with_resnet(resnet_input)
-
-    # 自訓練模型預測（僅作為輔助參考）
+    # 使用 Custom CNN 模型輔助預測
     custom_predictions = predict_with_custom_model(resnet_input)
+    custom_label = "deepfake" if custom_predictions[0][0] > 0.5 else "real"
+    custom_confidence = custom_predictions[0][0] if custom_predictions[0][0] > 0.5 else 1 - custom_predictions[0][0]
 
-    # 假設自訓練模型返回的信心分數是 0 到 1 之間
-    custom_confidence = custom_predictions[0][0]
+    st.subheader("ResNet50 預測結果")
+    st.markdown(f"**Top-1 類別**: `{label}`\n\n**信心度**: `{confidence:.4f}`")
 
-    # 顯示最終結果
-    st.subheader("最終預測結果 (ResNet50 判斷)")
-    st.markdown(f"**分類結果**: `{resnet_label}`\n\n**信心度**: `{resnet_confidence:.4f}`")
+    st.subheader("Custom CNN 預測結果")
+    st.markdown(f"**預測類別**: `{custom_label}`\n\n**信心度**: `{custom_confidence:.4f}`")
 
-    # 顯示自訓練模型的預測結果（作為參考）
-    st.subheader("自訓練模型預測結果 (作為參考)")
-    st.markdown(f"**自訓練模型信心度**: `{custom_confidence:.4f}`")
+    st.subheader("預處圖")
+    st.image(processed_img, caption="FFT + Unsharp Mask", use_container_width=True)
 
-    # 顯示去除黑色區域後的預處理圖片
-    st.subheader("預處理後的圖片 (黑色區域已去除)")
-    st.image(processed_img_no_black, caption="去除黑色區域後的圖片", use_container_width=True)
-
-    # 顯示 CbCr 分析結果
-    st.subheader("CbCr 分析")
+    st.subheader("CbCr 分頹")
     st.image(cbcr_img, caption="YCbCr - Cb/Cr Channels", use_container_width=True)
 
-    # 顯示 Top-3 預測結果
     st.markdown("---")
     st.markdown("**Top-3 預測結果 (ResNet50):**")
-    for _, name, score in _:
-        st.write
+    for _, name, score in decoded:
+        st.write(f"- {name}: {score:.4f}")
