@@ -1,11 +1,9 @@
 import streamlit as st
 import numpy as np
 import cv2
-import tensorflow as tf
 from PIL import Image
+import tensorflow as tf
 from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
-import requests
-from io import BytesIO
 
 # 設置頁面標題與配置
 st.set_page_config(page_title="Deepfake 偵測", layout="centered")
