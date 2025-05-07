@@ -116,6 +116,16 @@ def show_prediction(img):
     st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
                  f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
 
+# 🔹 載入人臉
+def extract_face(img):
+    # 使用 MTCNN 偵測人臉
+    faces = detector.detect_faces(np.array(img))
+    if faces:
+        x, y, w, h = faces[0]['box']
+        face_img = img.crop((x, y, x + w, y + h))
+        return face_img
+    return None
+
 # 🔹 Streamlit 主應用程式
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖片與影片偵測器")
@@ -158,7 +168,7 @@ with tab2:
             ret, frame = cap.read()
             if not ret:
                 break
-            if frame_idx % 10 == 0:
+            if frame_idx % 10 == 0:  # 修正語法錯誤
                 frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                 face_img = extract_face(frame_pil)
                 if face_img:
