@@ -58,7 +58,8 @@ detector = MTCNN()
 # 🔹 中心裁切函數 - 避免高清圖片影響 ResNet50 預測
 def center_crop(img, target_size=(224, 224)):
     width, height = img.size
-    new_width, new_height = target_size left = (width - new_width) // 2
+    new_width, new_height = target_size  # 將 target_size 拆開為 new_width 和 new_height
+    left = (width - new_width) // 2
     top = (height - new_height) // 2
     right = left + new_width
     bottom = top + new_height
@@ -67,7 +68,7 @@ def center_crop(img, target_size=(224, 224)):
 # 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
 def preprocess_for_both_models(img):
     # 1️⃣ **高清圖處理：LANCZOS 縮圖**
-    img  img.resize((256, 256), Image.Resampling.LANCZOS)
+    img = img.resize((256, 256), Image.Resampling.LANCZOS)
 
     # 2️⃣ **ResNet50 必須 224x224**
     img = center_crop(img, (224, 224))
@@ -77,7 +78,7 @@ def preprocess_for_both_models(img):
     # 3️⃣ **可選：對 ResNet50 做 Gaussian Blur**
     apply_blur = True  # 🚀 這裡可以開關
     if apply_blur:
-        img_array = cv2.GaussianBlur(img_array, (3, 3) 0)
+        img_array = cv2.GaussianBlur(img_array, (3, 3), 0)
 
     # 4️⃣ **ResNet50 特定預處理**
     resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
@@ -91,7 +92,7 @@ def preprocess_for_both_models(img):
 def predict_with_both_models(img):
     resnet_input, custom_input = preprocess_for_both_models(img)
     
-    # ResNe50 預測
+    # ResNet50 預測
     resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
     resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
     
@@ -115,34 +116,13 @@ def show_prediction(img):
     st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
                  f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
 
-# 🔹 擷取人臉區域
-def extract_face(img):
-    # 檢查是否為 PIL 圖片，並將其轉換為 OpenCV 格式
-    if isinstance(img, Image.Image):
-        img = np.array(img)
-    
-    # 使用 MTCNN 偵測人臉
-    faces = detector.detect_faces(img)
-    
-    if len(faces) > 0:
-        # 擷取第一張偵測到的臉部 (可根據需求選擇哪一張臉)
-        x, y, width, height = faces[0]['box']
-        face = img[y:y+height, x:x+width]
-        
-        # 將人臉裁剪成 PIL 物件並返回
-        face_img = Image.fromarray(face)
-        return face_img
-    else:
-        # 若未偵測到臉部，返回 None
-        return None
-
 # 🔹 Streamlit 主應用程式
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖片與影片偵測器")
 
 tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
 
-# ---------- 圖片 ----------  
+# ---------- 圖片 ---------- 
 with tab1:
     st.header("圖片偵測")
     uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
@@ -159,7 +139,7 @@ with tab1:
             st.write("未偵測到人臉，使用整體圖片進行預測")
             show_prediction(pil_img)
 
-# ---------- 影片 ----------  
+# ---------- 影片 ---------- 
 with tab2:
     st.header("影片偵測（只顯示第一張預測結果）")
     uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
