@@ -107,8 +107,19 @@ def load_custom_model_from_huggingface(model_url):
 
 # 自訂模型預測
 def predict_with_custom_model(img_tensor):
+    if custom_model is None:
+        print("自訂模型尚未加載，請檢查模型加載過程。")
+        return None
+    
+    # 確保 img_tensor 的形狀符合要求
+    img_tensor = np.expand_dims(img_tensor, axis=0)  # 增加 batch 維度
+    img_tensor = tf.image.resize(img_tensor, (224, 224))  # 確保尺寸為 224x224
+
+    # 預測
     predictions = custom_model.predict(img_tensor)
-    confidence = predictions[0][0]  # 假設是二分類模型，返回預測信心度
+    
+    # 假設是二分類模型，返回預測信心度
+    confidence = predictions[0][0]
     return confidence
 
 # 載入自訂模型
@@ -120,7 +131,7 @@ if custom_model is None:
 else:
     print("自訂模型已加載")
 
-# 偵測預測結果
+# 偵測結果
 uploaded_file = st.file_uploader("上傳影像", type=["jpg", "png", "jpeg"])
 if uploaded_file:
     img = Image.open(uploaded_file)
@@ -133,10 +144,11 @@ if uploaded_file:
     
     # 自訂模型預測
     custom_confidence = predict_with_custom_model(img_tensor)
-    st.write(f"自訂模型預測信心分數: {custom_confidence:.2f}")
+    if custom_confidence is not None:
+        st.write(f"自訂模型預測信心分數: {custom_confidence:.2f}")
     
     # 顯示結果
-    if custom_confidence > 0.5:
+    if custom_confidence and custom_confidence > 0.5:
         st.write("這是一張 Deepfake 影像")
     else:
         st.write("這是一張真實影像")
