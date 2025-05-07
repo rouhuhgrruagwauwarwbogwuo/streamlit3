@@ -12,6 +12,7 @@ from mtcnn import MTCNN
 import tempfile
 import os
 import requests
+import h5py
 
 # 檢查並下載模型檔案
 def download_model():
@@ -33,7 +34,10 @@ def download_model():
 
 # 🔹 載入 ResNet50 模型
 resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
-resnet_classifier = Sequential([resnet_model, Dense(1, activation='sigmoid')])
+resnet_classifier = Sequential([
+    resnet_model,
+    Dense(1, activation='sigmoid')  
+])
 resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
 # 🔹 載入自訂 CNN 模型
@@ -63,21 +67,24 @@ def center_crop(img, target_size=(224, 224)):
 
 # 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
 def preprocess_for_both_models(img):
+    # 1️⃣ **高清圖處理：LANCZOS 縮圖**
     img = img.resize((256, 256), Image.Resampling.LANCZOS)
+
+    # 2️⃣ **ResNet50 必須 224x224**
     img = center_crop(img, (224, 224))
 
     img_array = np.array(img)  # 轉為 numpy array
+
+    # 3️⃣ **可選：對 ResNet50 做 Gaussian Blur**
+    apply_blur = True  # 🚀 這裡可以開關
+    if apply_blur:
+        img_array = cv2.GaussianBlur(img_array, (3, 3), 0)
 
     # 4️⃣ **ResNet50 特定預處理**
     resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
 
     # 5️⃣ **自訂 CNN 正規化 (0~1)**
     custom_input = np.expand_dims(img_array / 255.0, axis=0)
-
-    # 確保自訂 CNN 的輸入維度是正確的
-    if custom_input.shape != (1, 224, 224, 3):
-        custom_input = np.resize(custom_input, (1, 224, 224, 3))  # 調整尺寸
-        print(f"調整後 custom_input 的形狀: {custom_input.shape}")
 
     return resnet_input, custom_input
 
@@ -99,37 +106,25 @@ def predict_with_both_models(img):
 def show_prediction(img):
     resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(img)
     
+    # 顯示未經處理的圖片
     st.image(img, caption="原始圖片", use_container_width=True)
+    
+    # 顯示偵測到的人臉並縮小圖片
     st.image(img, caption="偵測到的人臉", use_container_width=False, width=300)
     
+    # 顯示預測結果
     st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
                  f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
 
-# 🔹 提取人臉區域
+# 🔹 載入人臉
 def extract_face(img):
-    try:
-        if not isinstance(img, Image.Image):
-            st.error("傳入的不是有效的 PIL 圖片！")
-            return None
-        
-        img_array = np.array(img)
-        
-        faces = detector.detect_faces(img_array)
-        
-        st.write(f"偵測到 {len(faces)} 張臉部")
-
-        if len(faces) == 0:
-            st.write("未偵測到人臉，將使用整體圖片進行預測。")
-            return img 
-        
-        x, y, width, height = faces[0]['box']
-        face = img_array[y:y + height, x:x + width]
-        
-        face_pil = Image.fromarray(face)
-        return face_pil
-    except Exception as e:
-        st.error(f"處理圖片時發生錯誤: {e}")
-        return None
+    # 使用 MTCNN 偵測人臉
+    faces = detector.detect_faces(np.array(img))
+    if faces:
+        x, y, w, h = faces[0]['box']
+        face_img = img.crop((x, y, x + w, y + h))
+        return face_img
+    return None
 
 # 🔹 Streamlit 主應用程式
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -173,7 +168,7 @@ with tab2:
             ret, frame = cap.read()
             if not ret:
                 break
-            if10 == 0:
+            if frame_idx % 10 == 0:  # 修正語法錯誤
                 frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                 face_img = extract_face(frame_pil)
                 if face_img:
