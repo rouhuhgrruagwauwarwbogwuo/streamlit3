@@ -81,6 +81,7 @@ def preprocess_for_both_models(img):
     # 可選：加模糊降雜訊
     img_array = img_array.astype(np.float32) / 255.0
 
+    # 擴展維度以符合模型輸入要求： (batch_size, height, width, channels)
     resnet_input = np.expand_dims(img_array, axis=0)
     custom_input = np.expand_dims(img_array, axis=0)
 
@@ -95,6 +96,7 @@ def predict_with_both_models(img, only_resnet=False):
     if only_resnet or not custom_model:
         return resnet_label, resnet_prediction, "", 0.0
     else:
+        # 確保輸入的數據與模型預期的維度一致
         custom_prediction = custom_model.predict(custom_input)[0][0]
         custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
         return resnet_label, resnet_prediction, custom_label, custom_prediction
