@@ -1,12 +1,28 @@
 import numpy as np
 import streamlit as st
-from tensorflow.keras.applications import ResNet50, preprocess_input
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-from PIL import Image, ImageEnhance, ImageFilter
-import os
-import requests
+from keras.applications import ResNet50
+from keras.models import Sequential
+from keras.layers import Dense
+from PIL import Image
 from mtcnn import MTCNN
+import requests
+import os
+
+# 🔽 下載模型（如果模型未下載過）
+def download_model():
+    model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
+    model_filename = "deepfake_cnn_model.h5"
+    
+    if not os.path.exists(model_filename):
+        response = requests.get(model_url)
+        if response.status_code == 200:
+            with open(model_filename, "wb") as f:
+                f.write(response.content)
+            print("模型檔案已成功下載！")
+        else:
+            print(f"下載失敗，狀態碼：{response.status_code}")
+            return None
+    return model_filename
 
 # 🔹 載入 ResNet50 模型
 try:
@@ -47,53 +63,19 @@ def center_crop(img, target_size=(224, 224)):
     bottom = top + new_height
     return img.crop((left, top, right, bottom))
 
-# 🔹 CLAHE 預處理
-def apply_clahe(image):
-    enhancer = ImageEnhance.Contrast(image)
-    image_clahe = enhancer.enhance(2)  # 增加對比度
-    return image_clahe
-
-# 🔹 頻域分析 (FFT)
-def apply_fft(image):
-    img_gray = image.convert('L')  # 轉換為灰階圖像
-    img_array = np.array(img_gray)
-
-    # 計算傅立葉變換
-    f = np.fft.fft2(img_array)
-    fshift = np.fft.fftshift(f)
-    magnitude_spectrum = np.log(np.abs(fshift) + 1)
-
-    # 轉換回圖像
-    magnitude_spectrum_img = Image.fromarray(np.uint8(magnitude_spectrum * 255 / magnitude_spectrum.max()))
-    return magnitude_spectrum_img
-
-# 🔹 圖片預處理（包括 CLAHE 和 FFT）
+# 🔹 圖片預處理
 def preprocess_for_resnet(img):
     img = img.resize((256, 256), Image.Resampling.LANCZOS)
-    img = apply_clahe(img)  # CLAHE 處理
-    img = apply_fft(img)    # 頻域處理
-    img = center_crop(img, (224, 224))  # 中心裁切
-
-    # 轉換為 numpy 陣列，並將數值範圍調整到 [0, 1]
+    img = center_crop(img, (224, 224))
     img_array = np.array(img)
     img_array = img_array.astype(np.float32) / 255.0
 
     # 擴展維度以符合模型輸入要求： (batch_size, height, width, channels)
-    if img_array.ndim == 3:  # 若圖片是 RGB 彩圖 (H, W, C)
-        resnet_input = np.expand_dims(img_array, axis=0)
-    else:  # 若圖片是灰階圖 (H, W)
-        resnet_input = np.expand_dims(img_array, axis=-1)
-        resnet_input = np.repeat(resnet_input, 3, axis=-1)  # 重複通道使其符合 RGB
+    resnet_input = np.expand_dims(img_array, axis=0)
 
-    # 使用 ResNet50 預處理
-    resnet_input = preprocess_input(resnet_input)
-
-    # 檢查輸入形狀
-    print(f"ResNet 輸入形狀: {resnet_input.shape}")
-    
     return resnet_input
 
-# 🔹 ResNet50 預測
+# 🔹 ResNet50 模型預測
 def predict_with_resnet(img):
     resnet_input = preprocess_for_resnet(img)
     resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
@@ -103,6 +85,7 @@ def predict_with_resnet(img):
 # 🔹 顯示預測結果
 def show_prediction(img):
     resnet_label, resnet_confidence = predict_with_resnet(img)
+
     st.image(img, caption="原始圖片", use_container_width=True)
     st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})")
 
@@ -110,17 +93,50 @@ def show_prediction(img):
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖片偵測器")
 
-# ---------- 圖片 ---------- 
-st.header("圖片偵測")
-uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
-if uploaded_image:
-    pil_img = Image.open(uploaded_image).convert("RGB")
-    st.image(pil_img, caption="原始圖片", use_container_width=True)
+# 分頁
+tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
 
-    face_img = extract_face(pil_img)
-    if face_img:
-        st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-        show_prediction(face_img)
-    else:
-        st.write("未偵測到人臉，使用整體圖片進行預測")
-        show_prediction(pil_img)
+# ---------- 圖片 ---------- 
+with tab1:
+    st.header("圖片偵測")
+    uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
+    if uploaded_image:
+        pil_img = Image.open(uploaded_image).convert("RGB")
+        st.image(pil_img, caption="原始圖片", use_container_width=True)
+
+        face_img = extract_face(pil_img)
+        if face_img:
+            st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
+            show_prediction(face_img)
+        else:
+            st.write("未偵測到人臉，使用整體圖片進行預測")
+            show_prediction(pil_img)
+
+# ---------- 影片 ---------- 
+with tab2:
+    st.header("影片偵測（僅分析前幾幀）")
+    uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
+    if uploaded_video:
+        st.video(uploaded_video)
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+            tmp.write(uploaded_video.read())
+            video_path = tmp.name
+
+        st.info("🎬 擷取影片幀與進行預測中...")
+        # 使用 PIL 提取影片幀
+        video = Image.open(video_path)
+        frame_idx = 0
+
+        while True:
+            try:
+                frame_pil = video.seek(frame_idx)
+                if frame_idx % 10 == 0:
+                    face_img = extract_face(frame_pil)
+                    if face_img:
+                        st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
+                        show_prediction(face_img)
+                        break
+                frame_idx += 1
+            except EOFError:
+                break
