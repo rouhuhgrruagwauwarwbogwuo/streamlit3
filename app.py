@@ -77,6 +77,7 @@ def preprocess_for_both_models(img):
     # 確保自訂 CNN 的輸入維度是正確的
     if custom_input.shape != (1, 224, 224, 3):
         custom_input = np.resize(custom_input, (1, 224, 224, 3))  # 調整尺寸
+        print(f"調整後 custom_input 的形狀: {custom_input.shape}")
 
     return resnet_input, custom_input
 
@@ -172,7 +173,7 @@ with tab2:
             ret, frame = cap.read()
             if not ret:
                 break
-            if frame_idx % 10 == 0:
+            if10 == 0:
                 frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                 face_img = extract_face(frame_pil)
                 if face_img:
