@@ -9,7 +9,7 @@ from mtcnn import MTCNN
 import tempfile
 import os
 import requests
-import cv2
+import moviepy.editor as mp
 
 # 🔽 下載自訂 CNN 模型（從 Hugging Face）
 def download_model():
@@ -30,7 +30,7 @@ def download_model():
 # 🔹 載入 ResNet50 模型
 try:
     resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
-    resnet_classifier = Sequential([ 
+    resnet_classifier = Sequential([
         resnet_model,
         Dense(1, activation='sigmoid')  
     ])
@@ -127,6 +127,7 @@ only_resnet = st.sidebar.checkbox("僅顯示 ResNet50 預測", value=False)
 # 分頁
 tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
 
+
 # ---------- 圖片 ---------- 
 with tab1:
     st.header("圖片偵測")
@@ -155,19 +156,14 @@ with tab2:
             video_path = tmp.name
 
         st.info("🎬 擷取影片幀與進行預測中...")
-        cap = cv2.VideoCapture(video_path)
+        video = mp.VideoFileClip(video_path)
         frame_idx = 0
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
+        for frame in video.iter_frames(fps=10, dtype='uint8'):
+            frame_pil = Image.fromarray(frame)
+            face_img = extract_face(frame_pil)
+            if face_img:
+                st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
+                show_prediction(face_img, only_resnet)
                 break
-            if frame_idx % 10 == 0:
-                frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                face_img = extract_face(frame_pil)
-                if face_img:
-                    st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-                    show_prediction(face_img, only_resnet)
-                    break
             frame_idx += 1
-        cap.release()
