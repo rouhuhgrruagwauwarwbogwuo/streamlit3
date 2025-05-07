@@ -93,9 +93,6 @@ def show_prediction(img):
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖片偵測器")
 
-# 🔹 側邊欄選項
-only_resnet = st.sidebar.checkbox("僅顯示 ResNet50 預測", value=True)
-
 # 分頁
 tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
 
