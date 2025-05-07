@@ -88,7 +88,7 @@ def preprocess_for_both_models(img):
 
     return resnet_input, custom_input
 
-# 🔹 進行預測
+# 🔹 進行預測並顯示 'Real' 或 'Deepfake'
 def predict_with_both_models(img):
     resnet_input, custom_input = preprocess_for_both_models(img)
     
@@ -106,15 +106,12 @@ def predict_with_both_models(img):
 def show_prediction(img):
     resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(img)
     
-    # 顯示未經處理的圖片
+    # 顯示原始圖片
     st.image(img, caption="原始圖片", use_container_width=True)
     
-    # 顯示偵測到的人臉並縮小圖片
-    st.image(img, caption="偵測到的人臉", use_container_width=False, width=300)
-    
     # 顯示預測結果
-    st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
-                 f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
+    st.subheader(f"ResNet50 預測結果: {resnet_label} ({resnet_confidence:.2%})")
+    st.subheader(f"自訂 CNN 預測結果: {custom_label} ({custom_confidence:.2%})")
 
 # 🔹 Streamlit 主應用程式
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -166,4 +163,4 @@ with tab2:
                     show_prediction(face_img)
                     break  
             frame_idx += 1
-        cap.release()    
+        cap.release()
