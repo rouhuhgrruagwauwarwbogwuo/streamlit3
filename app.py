@@ -1,18 +1,19 @@
 import streamlit as st
 import numpy as np
 import cv2
-import tempfile
-import os
-from PIL import Image
-from keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
 import tensorflow as tf
+from PIL import Image
+from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
+import os
 
-# 加載模型
-resnet_model = ResNet50(weights="imagenet")
+st.set_page_config(page_title="Deepfake 偵測", layout="centered")
+st.title("Deepfake 偵測工具 (價值增強 + FFT + YCbCr)")
 
-# ========= 預處理相關函數 =========
+# 載入 ResNet50
+resnet_model = ResNet50(weights='imagenet')
 
-def center_crop(img, target_size):
+# 圖像中央補白補滿 target size
+def center_crop(img, target_size=(224, 224)):
     width, height = img.size
     new_width, new_height = target_size
     left = (width - new_width) // 2
@@ -21,65 +22,87 @@ def center_crop(img, target_size):
     bottom = (height + new_height) // 2
     return img.crop((left, top, right, bottom))
 
-def apply_fft_highpass(img_array):
+# 對圖片執行 FFT 與高速遮漏
+def apply_fft_high_pass(img_array):
     gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
     f = np.fft.fft2(gray)
     fshift = np.fft.fftshift(f)
     rows, cols = gray.shape
-    crow, ccol = rows // 2, cols // 2
-    fshift[crow - 10:crow + 10, ccol - 10:ccol + 10] = 0
+    crow, ccol = rows // 2 , cols // 2
+    fshift[crow-20:crow+20, ccol-20:ccol+20] = 0
     f_ishift = np.fft.ifftshift(fshift)
     img_back = np.fft.ifft2(f_ishift)
     img_back = np.abs(img_back)
-    img_back = cv2.normalize(img_back, None, 0, 255, cv2.NORM_MINMAX).astype('uint8')
-    return cv2.cvtColor(img_back, cv2.COLOR_GRAY2RGB)
+    img_back = cv2.normalize(img_back, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    return img_back
 
-def unsharp_mask(img, kernel_size=(5, 5), sigma=1.0, amount=1.5, threshold=0):
-    blurred = cv2.GaussianBlur(img, kernel_size, sigma)
-    sharpened = float(amount + 1) * img - float(amount) * blurred
-    sharpened = np.clip(sharpened, 0, 255).astype(np.uint8)
-    if threshold > 0:
-        low_contrast_mask = np.abs(img - blurred) < threshold
-        np.copyto(sharpened, img, where=low_contrast_mask)
-    return sharpened
+# Unsharp Mask 提升詳細
 
-def preprocess_for_resnet(img):
-    img = img.resize((800, 800), Image.Resampling.LANCZOS)
+def apply_unsharp_mask(img):
+    gaussian = cv2.GaussianBlur(img, (9, 9), 10.0)
+    unsharp = cv2.addWeighted(img, 1.5, gaussian, -0.5, 0)
+    return unsharp
+
+# YCbCr 分析出 Cb 與 Cr
+
+def extract_ycbcr_channels(img_array):
+    ycbcr = cv2.cvtColor(img_array, cv2.COLOR_RGB2YCrCb)
+    _, cb, cr = cv2.split(ycbcr)
+    return cb, cr
+
+# 合併預處理 (FFT + USM + YCbCr)
+def preprocess_advanced(img):
+    # 大幅縮放 保護詳細
+    img = img.resize((256, 256), Image.Resampling.LANCZOS)
     img = center_crop(img, (224, 224))
     img_array = np.array(img)
 
-    img_array = apply_fft_highpass(img_array)
-    img_array = unsharp_mask(img_array)
-    img_array = cv2.GaussianBlur(img_array, (3, 3), 0)
+    # FFT 高速遮漏
+    high_pass_img = apply_fft_high_pass(img_array)
+    high_pass_img_color = cv2.merge([high_pass_img]*3)  # 換 RGB
 
-    resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
-    return resnet_input
+    # Unsharp Mask
+    enhanced_img = apply_unsharp_mask(high_pass_img_color)
 
-# ========== 預測函數 ===========
-def predict_with_resnet(img):
-    img_array = preprocess_for_resnet(img)
-    predictions = resnet_model.predict(img_array)
-    top_pred = decode_predictions(predictions, top=1)[0][0]
-    label = top_pred[1]
-    confidence = float(top_pred[2])
-    if confidence > 0.9:
-        result_label = "real"
-    else:
-        result_label = "deepfake"
-    return result_label, confidence
+    # YCbCr 提取 Cb/Cr
+    cb, cr = extract_ycbcr_channels(img_array)
+    cb = cv2.resize(cb, (224, 224))
+    cr = cv2.resize(cr, (224, 224))
+    cbcr_3ch = cv2.merge([cb, cr, np.zeros_like(cb)])
 
-# ========== Streamlit App ===========
-st.set_page_config(page_title="Deepfake 偵測系統", layout="centered")
-st.title("🔍 Deepfake 偵測系統（使用 ResNet50）")
+    # 接合所有這些元素 (最終對上 ResNet50)
+    final_input = preprocess_input(np.expand_dims(enhanced_img, axis=0))
 
-uploaded_file = st.file_uploader("請上傳圖片檔案", type=["jpg", "jpeg", "png"])
+    return final_input, enhanced_img, cbcr_3ch
 
-if uploaded_file is not None:
-    pil_img = Image.open(uploaded_file).convert('RGB')
-    st.image(pil_img, caption="上傳的圖片", use_container_width=True)
+# ResNet50 預測
 
-    label, confidence = predict_with_resnet(pil_img)
+def predict_with_resnet(img_tensor):
+    predictions = resnet_model.predict(img_tensor)
+    decoded = decode_predictions(predictions, top=3)[0]
+    label = decoded[0][1]
+    confidence = float(decoded[0][2])
+    return label, confidence, decoded
 
-    st.subheader("📌 偵測結果：")
-    st.write(f"判斷為：**{label.upper()}**")
-    st.write(f"信心分數：{confidence:.4f}")
+uploaded_file = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
+
+if uploaded_file:
+    pil_img = Image.open(uploaded_file).convert("RGB")
+    st.image(pil_img, caption="原始圖片", use_container_width=True)
+
+    resnet_input, processed_img, cbcr_img = preprocess_advanced(pil_img)
+    label, confidence, decoded = predict_with_resnet(resnet_input)
+
+    st.subheader("預測結果")
+    st.markdown(f"**Top-1 類別**: `{label}`\n\n**信心度**: `{confidence:.4f}`")
+
+    st.subheader("預處圖")
+    st.image(processed_img, caption="FFT + Unsharp Mask", use_container_width=True)
+
+    st.subheader("CbCr 分頹")
+    st.image(cbcr_img, caption="YCbCr - Cb/Cr Channels", use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("**Top-3 預測結果:**")
+    for _, name, score in decoded:
+        st.write(f"- {name}: {score:.4f}")
