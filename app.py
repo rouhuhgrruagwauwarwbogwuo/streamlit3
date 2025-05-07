@@ -4,23 +4,33 @@ import cv2
 import tensorflow as tf
 from PIL import Image
 from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
-import os
-from tensorflow.keras.models import load_model
 import requests
+from tensorflow.keras.models import load_model
 from io import BytesIO
+import os
 
 # 載入 ResNet50 和自訓練的模型
 resnet_model = ResNet50(weights='imagenet')
 
-# 從 Hugging Face 下載自訓練模型
-def load_custom_model_from_huggingface(model_url):
+# 從 Hugging Face 下載並加載自訓練模型
+def download_and_load_model_from_huggingface(model_url, model_path='deepfake_cnn_model.h5'):
+    # 下載模型文件
     response = requests.get(model_url)
-    model = load_model(BytesIO(response.content))
-    return model
+    if response.status_code == 200:
+        # 將模型保存到本地
+        with open(model_path, 'wb') as f:
+            f.write(response.content)
+        # 加載本地模型
+        model = load_model(model_path)
+        return model
+    else:
+        raise Exception(f"Failed to download model from Hugging Face, status code {response.status_code}")
 
-# 假設自訓練模型在 Hugging Face 上
+# 自訓練模型的 Hugging Face URL
 custom_model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
-custom_model = load_custom_model_from_huggingface(custom_model_url)
+
+# 嘗試加載自訓練模型
+custom_model = download_and_load_model_from_huggingface(custom_model_url)
 
 # 圖像中央補白補滿 target size
 def center_crop(img, target_size=(224, 224)):
