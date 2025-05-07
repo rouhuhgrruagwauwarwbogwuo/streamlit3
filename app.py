@@ -1,6 +1,6 @@
 import numpy as np
 import streamlit as st
-from tensorflow.keras.applications import ResNet50
+from tensorflow.keras.applications import ResNet50, preprocess_input
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
 from PIL import Image, ImageEnhance, ImageFilter
@@ -84,6 +84,9 @@ def preprocess_for_resnet(img):
     else:  # 若圖片是灰階圖 (H, W)
         resnet_input = np.expand_dims(img_array, axis=-1)
         resnet_input = np.repeat(resnet_input, 3, axis=-1)  # 重複通道使其符合 RGB
+
+    # 使用 ResNet50 預處理
+    resnet_input = preprocess_input(resnet_input)
 
     # 檢查輸入形狀
     print(f"ResNet 輸入形狀: {resnet_input.shape}")
