@@ -5,12 +5,22 @@ import tensorflow as tf
 from PIL import Image
 from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
 import os
+from tensorflow.keras.models import load_model
+import requests
+from io import BytesIO
 
-st.set_page_config(page_title="Deepfake 偵測", layout="centered")
-st.title("Deepfake 偵測工具 (價值增強 + FFT + YCbCr)")
-
-# 載入 ResNet50
+# 載入 ResNet50 和自訓練的模型
 resnet_model = ResNet50(weights='imagenet')
+
+# 從 Hugging Face 下載自訓練模型
+def load_custom_model_from_huggingface(model_url):
+    response = requests.get(model_url)
+    model = load_model(BytesIO(response.content))
+    return model
+
+# 假設自訓練模型在 Hugging Face 上
+custom_model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
+custom_model = load_custom_model_from_huggingface(custom_model_url)
 
 # 圖像中央補白補滿 target size
 def center_crop(img, target_size=(224, 224)):
@@ -37,14 +47,12 @@ def apply_fft_high_pass(img_array):
     return img_back
 
 # Unsharp Mask 提升詳細
-
 def apply_unsharp_mask(img):
     gaussian = cv2.GaussianBlur(img, (9, 9), 10.0)
     unsharp = cv2.addWeighted(img, 1.5, gaussian, -0.5, 0)
     return unsharp
 
 # YCbCr 分析出 Cb 與 Cr
-
 def extract_ycbcr_channels(img_array):
     ycbcr = cv2.cvtColor(img_array, cv2.COLOR_RGB2YCrCb)
     _, cb, cr = cv2.split(ycbcr)
@@ -76,7 +84,6 @@ def preprocess_advanced(img):
     return final_input, enhanced_img, cbcr_3ch
 
 # ResNet50 預測
-
 def predict_with_resnet(img_tensor):
     predictions = resnet_model.predict(img_tensor)
     decoded = decode_predictions(predictions, top=3)[0]
@@ -84,25 +91,48 @@ def predict_with_resnet(img_tensor):
     confidence = float(decoded[0][2])
     return label, confidence, decoded
 
+# 自訓練模型預測（作為輔助參考）
+def predict_with_custom_model(img_tensor):
+    predictions = custom_model.predict(img_tensor)
+    return predictions
+
+# 上傳圖片
 uploaded_file = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
     pil_img = Image.open(uploaded_file).convert("RGB")
     st.image(pil_img, caption="原始圖片", use_container_width=True)
 
+    # 預處理圖片
     resnet_input, processed_img, cbcr_img = preprocess_advanced(pil_img)
-    label, confidence, decoded = predict_with_resnet(resnet_input)
 
-    st.subheader("預測結果")
-    st.markdown(f"**Top-1 類別**: `{label}`\n\n**信心度**: `{confidence:.4f}`")
+    # 預測 ResNet50
+    resnet_label, resnet_confidence, _ = predict_with_resnet(resnet_input)
 
-    st.subheader("預處圖")
+    # 自訓練模型預測（僅作為輔助參考）
+    custom_predictions = predict_with_custom_model(resnet_input)
+
+    # 假設自訓練模型返回的信心分數是 0 到 1 之間
+    custom_confidence = custom_predictions[0][0]
+
+    # 顯示最終結果
+    st.subheader("最終預測結果 (ResNet50 判斷)")
+    st.markdown(f"**分類結果**: `{resnet_label}`\n\n**信心度**: `{resnet_confidence:.4f}`")
+
+    # 顯示自訓練模型的預測結果（作為參考）
+    st.subheader("自訓練模型預測結果 (作為參考)")
+    st.markdown(f"**自訓練模型信心度**: `{custom_confidence:.4f}`")
+
+    # 顯示預處理後的圖片
+    st.subheader("預處理後的圖片")
     st.image(processed_img, caption="FFT + Unsharp Mask", use_container_width=True)
 
-    st.subheader("CbCr 分頹")
+    # 顯示 CbCr 分析結果
+    st.subheader("CbCr 分析")
     st.image(cbcr_img, caption="YCbCr - Cb/Cr Channels", use_container_width=True)
 
+    # 顯示 Top-3 預測結果
     st.markdown("---")
-    st.markdown("**Top-3 預測結果:**")
-    for _, name, score in decoded:
+    st.markdown("**Top-3 預測結果 (ResNet50):**")
+    for _, name, score in _:
         st.write(f"- {name}: {score:.4f}")
