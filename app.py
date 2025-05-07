@@ -1,129 +1,169 @@
-import streamlit as st
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
+import streamlit as st
+import cv2
 from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing import image
+from tensorflow.keras.applications import ResNet50
+from tensorflow.keras.applications.resnet50 import preprocess_input
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.models import Sequential
 from PIL import Image
-import requests
-from io import BytesIO
 from mtcnn import MTCNN
+import tempfile
+import os
+import requests
+import h5py
 
-# 設定頁面配置
-st.set_page_config(page_title="Deepfake 偵測", layout="centered")
-st.title("Deepfake 偵測工具")
+# 檢查並下載模型檔案
+def download_model():
+    model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
+    model_filename = "deepfake_cnn_model.h5"
+    
+    if not os.path.exists(model_filename):
+        response = requests.get(model_url)
+        if response.status_code == 200:
+            with open(model_filename, "wb") as f:
+                f.write(response.content)
+            print("模型檔案已成功下載！")
+        else:
+            print(f"下載失敗，狀態碼：{response.status_code}")
+            return None
+    else:
+        print(f"模型檔案 {model_filename} 已存在")
+    return model_filename
 
-# 載入 ResNet50 預訓練模型
-resnet_model = ResNet50(weights='imagenet')
+# 🔹 載入 ResNet50 模型
+resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
+resnet_classifier = Sequential([
+    resnet_model,
+    Dense(1, activation='sigmoid')  
+])
+resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
-# 載入 MTCNN 面部偵測模型
-mtcnn = MTCNN()
+# 🔹 載入自訂 CNN 模型
+model_path = download_model()
+if model_path:
+    try:
+        custom_model = load_model(model_path)
+        print("自訂 CNN 模型已成功載入")
+    except Exception as e:
+        print(f"載入自訂 CNN 模型時發生錯誤：{e}")
+        custom_model = None
+else:
+    custom_model = None
 
-# 圖像中央補白補滿
+# 🔹 初始化 MTCNN 人臉檢測器
+detector = MTCNN()
+
+# 🔹 中心裁切函數 - 避免高清圖片影響 ResNet50 預測
 def center_crop(img, target_size=(224, 224)):
     width, height = img.size
     new_width, new_height = target_size
     left = (width - new_width) // 2
     top = (height - new_height) // 2
-    right = (width + new_width) // 2
-    bottom = (height + new_height) // 2
+    right = left + new_width
+    bottom = top + new_height
     return img.crop((left, top, right, bottom))
 
-# 面部偵測與區域擷取
-def detect_face(img):
-    img_array = np.array(img)
-    faces = mtcnn.detect_faces(img_array)
-    if len(faces) > 0:
-        x, y, width, height = faces[0]['box']
-        face_img = img_array[y:y+height, x:x+width]
-        return face_img
-    else:
-        return None
-
-# 預處理影像，確保符合模型要求的格式
-def preprocess_advanced(img):
+# 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
+def preprocess_for_both_models(img):
+    # 1️⃣ **高清圖處理：LANCZOS 縮圖**
     img = img.resize((256, 256), Image.Resampling.LANCZOS)
+
+    # 2️⃣ **ResNet50 必須 224x224**
     img = center_crop(img, (224, 224))
-    img_array = np.array(img)
+
+    img_array = np.array(img)  # 轉為 numpy array
+
+    # 3️⃣ **可選：對 ResNet50 做 Gaussian Blur**
+    apply_blur = True  # 🚀 這裡可以開關
+    if apply_blur:
+        img_array = cv2.GaussianBlur(img_array, (3, 3), 0)
+
+    # 4️⃣ **ResNet50 特定預處理**
+    resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
+
+    # 5️⃣ **自訂 CNN 正規化 (0~1)**
+    custom_input = np.expand_dims(img_array / 255.0, axis=0)
+
+    return resnet_input, custom_input
+
+# 🔹 進行預測
+def predict_with_both_models(img):
+    resnet_input, custom_input = preprocess_for_both_models(img)
     
-    # 確保 img_array 是 float32 且標準化
-    img_array = img_array.astype(np.float32)
-    img_array /= 255.0
-
-    # 增加批次維度 (batch dimension)
-    img_array = np.expand_dims(img_array, axis=0)
+    # ResNet50 預測
+    resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
+    resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
     
-    return preprocess_input(img_array), img
+    # 自訂 CNN 預測
+    custom_prediction = custom_model.predict(custom_input)[0][0] if custom_model else 0
+    custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
+    
+    return resnet_label, resnet_prediction, custom_label, custom_prediction
 
-# ResNet50 預測
-def predict_with_resnet(img_tensor):
-    try:
-        predictions = resnet_model.predict(img_tensor)
-        decoded = decode_predictions(predictions, top=3)[0]
-        label = decoded[0][1]
-        confidence = float(decoded[0][2])
-        return label, confidence, decoded
-    except Exception as e:
-        print(f"ResNet50 預測出錯: {e}")
-        return None, 0, []
+# 🔹 顯示圖片和預測結果
+def show_prediction(img):
+    resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(img)
+    
+    # 顯示未經處理的圖片
+    st.image(img, caption="原始圖片", use_container_width=True)
+    
+    # 顯示偵測到的人臉並縮小圖片
+    st.image(img, caption="偵測到的人臉", use_container_width=False, width=300)
+    
+    # 顯示預測結果
+    st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
+                 f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
 
-# 載入自訂模型
-def load_custom_model_from_huggingface(model_url):
-    try:
-        response = requests.get(model_url)
-        if response.status_code == 200:
-            model = load_model(BytesIO(response.content))
-            return model
+# 🔹 Streamlit 主應用程式
+st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
+st.title("🧠 Deepfake 圖片與影片偵測器")
+
+tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
+
+# ---------- 圖片 ----------
+with tab1:
+    st.header("圖片偵測")
+    uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
+    if uploaded_image:
+        pil_img = Image.open(uploaded_image).convert("RGB")
+        st.image(pil_img, caption="原始圖片", use_container_width=True)
+
+        # 嘗試擷取人臉區域
+        face_img = extract_face(pil_img)
+        if face_img:
+            st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
+            show_prediction(face_img)  
         else:
-            print(f"下載失敗，HTTP 狀態碼: {response.status_code}")
-            return None
-    except Exception as e:
-        print(f"載入自訂模型出錯: {e}")
-        return None
+            st.write("未偵測到人臉，使用整體圖片進行預測")
+            show_prediction(pil_img)
 
-# 自訂模型預測
-def predict_with_custom_model(img_tensor):
-    if custom_model is None:
-        print("自訂模型尚未加載，請檢查模型加載過程。")
-        return None
-    
-    try:
-        predictions = custom_model.predict(img_tensor)
-        confidence = predictions[0][0]
-        return confidence
-    except Exception as e:
-        print(f"自訂模型預測出錯: {e}")
-        return None
+# ---------- 影片 ----------
+with tab2:
+    st.header("影片偵測（只顯示第一張預測結果）")
+    uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
+    if uploaded_video:
+        st.video(uploaded_video)
 
-# 載入自訂模型
-custom_model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
-custom_model = load_custom_model_from_huggingface(custom_model_url)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
+            tmp.write(uploaded_video.read())
+            video_path = tmp.name
 
-if custom_model is None:
-    print("自訂模型加載失敗，請檢查模型文件或 URL。")
-else:
-    print("自訂模型已加載")
+        st.info("🎬 擷取影片幀與進行預測中...")
+        cap = cv2.VideoCapture(video_path)
+        frame_idx = 0
 
-# 偵測結果
-uploaded_file = st.file_uploader("上傳影像", type=["jpg", "png", "jpeg"])
-if uploaded_file:
-    img = Image.open(uploaded_file)
-    img_tensor, original_img = preprocess_advanced(img)
-    
-    # 顯示原始圖片
-    st.image(original_img, caption="原始圖片", use_container_width=True)
-    
-    # 使用ResNet50進行預測
-    label, confidence, decoded_predictions = predict_with_resnet(img_tensor)
-    if label:
-        st.write(f"ResNet50 預測結果: {label} (信心分數: {confidence:.2f})")
-    
-    # 自訂模型預測
-    custom_confidence = predict_with_custom_model(img_tensor)
-    if custom_confidence is not None:
-        st.write(f"自訂模型預測信心分數: {custom_confidence:.2f}")
-    
-    # 顯示結果
-    if custom_confidence is not None and custom_confidence > 0.5:
-        st.write("這是一張 Deepfake 影像")
-    else:
-        st.write("這是一張真實影像")
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if frame_idx % 10 == 0:
+                frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                face_img = extract_face(frame_pil)
+                if face_img:
+                    st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
+                    show_prediction(face_img)
+                    break  
+            frame_idx += 1
+        cap.release()    說中文 
