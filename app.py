@@ -5,6 +5,7 @@ import tensorflow as tf
 from PIL import Image
 from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
 from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import requests
 from io import BytesIO
 
@@ -106,6 +107,19 @@ def predict_with_custom_model(img_tensor):
     predictions = custom_model.predict(img_tensor)
     confidence = predictions[0][0]  # 假設是二分類模型，返回預測信心度
     return confidence
+
+# 資料增強器
+def get_data_augmentation_generator():
+    datagen = ImageDataGenerator(
+        rotation_range=30,
+        width_shift_range=0.2,
+        height_shift_range=0.2,
+        shear_range=0.2,
+        zoom_range=0.2,
+        horizontal_flip=True,
+        fill_mode='nearest'
+    )
+    return datagen
 
 # 載入自訂模型
 custom_model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
