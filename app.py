@@ -1,30 +1,12 @@
 import numpy as np
 import streamlit as st
-from tensorflow.keras.models import load_model
 from tensorflow.keras.applications import ResNet50
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
 from PIL import Image, ImageEnhance, ImageFilter
-import tempfile
 import os
 import requests
 from mtcnn import MTCNN
-
-# 🔽 下載自訂 CNN 模型（從 Hugging Face）
-def download_model():
-    model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
-    model_filename = "deepfake_cnn_model.h5"
-    
-    if not os.path.exists(model_filename):
-        response = requests.get(model_url)
-        if response.status_code == 200:
-            with open(model_filename, "wb") as f:
-                f.write(response.content)
-            print("模型檔案已成功下載！")
-        else:
-            print(f"下載失敗，狀態碼：{response.status_code}")
-            return None
-    return model_filename
 
 # 🔹 載入 ResNet50 模型
 try:
@@ -38,18 +20,6 @@ try:
 except Exception as e:
     print(f"載入 ResNet50 模型時發生錯誤：{e}")
     resnet_classifier = None
-
-# 🔹 載入自訂 CNN 模型
-model_path = download_model()
-if model_path:
-    try:
-        custom_model = load_model(model_path)
-        print("自訂 CNN 模型已成功載入")
-    except Exception as e:
-        print(f"載入自訂 CNN 模型時發生錯誤：{e}")
-        custom_model = None
-else:
-    custom_model = None
 
 # 🔹 初始化 MTCNN 人臉檢測器
 detector = MTCNN()
@@ -98,7 +68,7 @@ def apply_fft(image):
     return magnitude_spectrum_img
 
 # 🔹 圖片預處理（包括 CLAHE 和 FFT）
-def preprocess_for_both_models(img):
+def preprocess_for_resnet(img):
     img = img.resize((256, 256), Image.Resampling.LANCZOS)
     img = apply_clahe(img)  # CLAHE 處理
     img = apply_fft(img)    # 頻域處理
@@ -108,33 +78,21 @@ def preprocess_for_both_models(img):
 
     # 擴展維度以符合模型輸入要求： (batch_size, height, width, channels)
     resnet_input = np.expand_dims(img_array, axis=0)
-    custom_input = np.expand_dims(img_array, axis=0)
 
-    return resnet_input, custom_input
+    return resnet_input
 
-# 🔹 模型預測
-def predict_with_both_models(img, only_resnet=False):
-    resnet_input, custom_input = preprocess_for_both_models(img)
+# 🔹 ResNet50 預測
+def predict_with_resnet(img):
+    resnet_input = preprocess_for_resnet(img)
     resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
     resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
-
-    if only_resnet or not custom_model:
-        return resnet_label, resnet_prediction, "", 0.0
-    else:
-        # 確保輸入的數據與模型預期的維度一致
-        custom_prediction = custom_model.predict(custom_input)[0][0]
-        custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
-        return resnet_label, resnet_prediction, custom_label, custom_prediction
+    return resnet_label, resnet_prediction
 
 # 🔹 顯示預測結果
-def show_prediction(img, only_resnet=False):
-    resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(img, only_resnet)
-
+def show_prediction(img):
+    resnet_label, resnet_confidence = predict_with_resnet(img)
     st.image(img, caption="原始圖片", use_container_width=True)
-    st.image(img, caption="偵測到的人臉", use_container_width=False, width=300)
     st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})")
-    if not only_resnet:
-        st.subheader(f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
 
 # 🔹 Streamlit 主頁面
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -150,7 +108,7 @@ if uploaded_image:
     face_img = extract_face(pil_img)
     if face_img:
         st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-        show_prediction(face_img, only_resnet=True)
+        show_prediction(face_img)
     else:
         st.write("未偵測到人臉，使用整體圖片進行預測")
-        show_prediction(pil_img, only_resnet=True)
+        show_prediction(pil_img)
