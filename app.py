@@ -9,7 +9,6 @@ from mtcnn import MTCNN
 import tempfile
 import os
 import requests
-import cv2
 
 # 🔽 下載自訂 CNN 模型（從 Hugging Face）
 def download_model():
@@ -155,19 +154,20 @@ with tab2:
             video_path = tmp.name
 
         st.info("🎬 擷取影片幀與進行預測中...")
-        cap = cv2.VideoCapture(video_path)
+        # 使用 PIL 提取影片幀
+        video = Image.open(video_path)
         frame_idx = 0
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
+        while True:
+            # 此處用 PIL 處理影片幀
+            try:
+                frame_pil = video.seek(frame_idx)
+                if frame_idx % 10 == 0:
+                    face_img = extract_face(frame_pil)
+                    if face_img:
+                        st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
+                        show_prediction(face_img, only_resnet)
+                        break
+                frame_idx += 1
+            except EOFError:
                 break
-            if frame_idx % 10 == 0:
-                frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                face_img = extract_face(frame_pil)
-                if face_img:
-                    st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-                    show_prediction(face_img, only_resnet)
-                    break
-            frame_idx += 1
-        cap.release()
