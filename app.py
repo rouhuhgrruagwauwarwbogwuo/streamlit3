@@ -1,14 +1,17 @@
 import numpy as np
 import streamlit as st
-from keras.applications import ResNet50
-from keras.models import Sequential
-from keras.layers import Dense
+from tensorflow.keras.models import load_model
+from tensorflow.keras.applications import ResNet50
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
 from PIL import Image
+import cv2
 from mtcnn import MTCNN
-import requests
+import tempfile
 import os
+import requests
 
-# 🔽 下載模型（如果模型未下載過）
+# 🔽 下載自訂 CNN 模型（從 Hugging Face）
 def download_model():
     model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
     model_filename = "deepfake_cnn_model.h5"
@@ -37,6 +40,18 @@ except Exception as e:
     print(f"載入 ResNet50 模型時發生錯誤：{e}")
     resnet_classifier = None
 
+# 🔹 載入自訂 CNN 模型
+model_path = download_model()
+if model_path:
+    try:
+        custom_model = load_model(model_path)
+        print("自訂 CNN 模型已成功載入")
+    except Exception as e:
+        print(f"載入自訂 CNN 模型時發生錯誤：{e}")
+        custom_model = None
+else:
+    custom_model = None
+
 # 🔹 初始化 MTCNN 人臉檢測器
 detector = MTCNN()
 
@@ -63,80 +78,80 @@ def center_crop(img, target_size=(224, 224)):
     bottom = top + new_height
     return img.crop((left, top, right, bottom))
 
-# 🔹 圖片預處理
-def preprocess_for_resnet(img):
+# 🔹 CLAHE 預處理
+def apply_clahe(image):
+    img = np.array(image.convert("L"))  # 轉為灰階
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    img_clahe = clahe.apply(img)
+    return Image.fromarray(img_clahe)
+
+# 🔹 頻域分析 (FFT)
+def apply_fft(image):
+    img = np.array(image)
+    # 轉換至灰階
+    img_gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    # 計算傅立葉變換
+    f = np.fft.fft2(img_gray)
+    fshift = np.fft.fftshift(f)
+    magnitude_spectrum = np.log(np.abs(fshift) + 1)
+    
+    # 將結果轉回圖像
+    return Image.fromarray(np.uint8(magnitude_spectrum))
+
+# 🔹 圖片預處理（包括 CLAHE 和 FFT）
+def preprocess_for_both_models(img):
     img = img.resize((256, 256), Image.Resampling.LANCZOS)
-    img = center_crop(img, (224, 224))
+    img = apply_clahe(img)  # CLAHE 處理
+    img = apply_fft(img)    # 頻域處理
+    img = center_crop(img, (224, 224))  # 中心裁切
     img_array = np.array(img)
     img_array = img_array.astype(np.float32) / 255.0
 
     # 擴展維度以符合模型輸入要求： (batch_size, height, width, channels)
     resnet_input = np.expand_dims(img_array, axis=0)
+    custom_input = np.expand_dims(img_array, axis=0)
 
-    return resnet_input
+    return resnet_input, custom_input
 
-# 🔹 ResNet50 模型預測
-def predict_with_resnet(img):
-    resnet_input = preprocess_for_resnet(img)
+# 🔹 模型預測
+def predict_with_both_models(img, only_resnet=False):
+    resnet_input, custom_input = preprocess_for_both_models(img)
     resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
     resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
-    return resnet_label, resnet_prediction
+
+    if only_resnet or not custom_model:
+        return resnet_label, resnet_prediction, "", 0.0
+    else:
+        # 確保輸入的數據與模型預期的維度一致
+        custom_prediction = custom_model.predict(custom_input)[0][0]
+        custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
+        return resnet_label, resnet_prediction, custom_label, custom_prediction
 
 # 🔹 顯示預測結果
-def show_prediction(img):
-    resnet_label, resnet_confidence = predict_with_resnet(img)
+def show_prediction(img, only_resnet=False):
+    resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(img, only_resnet)
 
     st.image(img, caption="原始圖片", use_container_width=True)
+    st.image(img, caption="偵測到的人臉", use_container_width=False, width=300)
     st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})")
+    if not only_resnet:
+        st.subheader(f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
 
 # 🔹 Streamlit 主頁面
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖片偵測器")
 
-# 分頁
-tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
-
 # ---------- 圖片 ---------- 
-with tab1:
-    st.header("圖片偵測")
-    uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
-    if uploaded_image:
-        pil_img = Image.open(uploaded_image).convert("RGB")
-        st.image(pil_img, caption="原始圖片", use_container_width=True)
+st.header("圖片偵測")
+uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
+if uploaded_image:
+    pil_img = Image.open(uploaded_image).convert("RGB")
+    st.image(pil_img, caption="原始圖片", use_container_width=True)
 
-        face_img = extract_face(pil_img)
-        if face_img:
-            st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-            show_prediction(face_img)
-        else:
-            st.write("未偵測到人臉，使用整體圖片進行預測")
-            show_prediction(pil_img)
-
-# ---------- 影片 ---------- 
-with tab2:
-    st.header("影片偵測（僅分析前幾幀）")
-    uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
-    if uploaded_video:
-        st.video(uploaded_video)
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
-            tmp.write(uploaded_video.read())
-            video_path = tmp.name
-
-        st.info("🎬 擷取影片幀與進行預測中...")
-        # 使用 PIL 提取影片幀
-        video = Image.open(video_path)
-        frame_idx = 0
-
-        while True:
-            try:
-                frame_pil = video.seek(frame_idx)
-                if frame_idx % 10 == 0:
-                    face_img = extract_face(frame_pil)
-                    if face_img:
-                        st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-                        show_prediction(face_img)
-                        break
-                frame_idx += 1
-            except EOFError:
-                break
+    face_img = extract_face(pil_img)
+    if face_img:
+        st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
+        show_prediction(face_img, only_resnet=True)
+    else:
+        st.write("未偵測到人臉，使用整體圖片進行預測")
+        show_prediction(pil_img, only_resnet=True)
