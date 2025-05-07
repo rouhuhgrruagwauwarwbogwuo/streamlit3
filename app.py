@@ -1,18 +1,24 @@
 import streamlit as st
 import numpy as np
 import cv2
-from PIL import Image
 import tensorflow as tf
+from PIL import Image
 from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
+from tensorflow.keras.models import load_model
+import requests
+from io import BytesIO
+from mtcnn import MTCNN
 
-# 設置頁面標題與配置
 st.set_page_config(page_title="Deepfake 偵測", layout="centered")
 st.title("Deepfake 偵測工具")
 
-# 載入 ResNet50 模型
+# 載入 ResNet50
 resnet_model = ResNet50(weights='imagenet')
 
-# 圖像中央裁剪
+# 載入 MTCNN 面部偵測模型
+mtcnn = MTCNN()
+
+# 圖像中央補白補滿 target size
 def center_crop(img, target_size=(224, 224)):
     width, height = img.size
     new_width, new_height = target_size
@@ -22,111 +28,126 @@ def center_crop(img, target_size=(224, 224)):
     bottom = (height + new_height) // 2
     return img.crop((left, top, right, bottom))
 
-# 頻率域高通濾波
+# 面部偵測與區域擷取
+def detect_face(img):
+    img_array = np.array(img)
+    faces = mtcnn.detect_faces(img_array)
+    if len(faces) > 0:
+        x, y, width, height = faces[0]['box']
+        face_img = img_array[y:y+height, x:x+width]
+        return face_img
+    else:
+        return None
+
+# 對圖片執行 FFT 與高速遮漏
 def apply_fft_high_pass(img_array):
     gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
     f = np.fft.fft2(gray)
     fshift = np.fft.fftshift(f)
     rows, cols = gray.shape
     crow, ccol = rows // 2 , cols // 2
-    fshift[crow-20:crow+20, ccol-20:ccol+20] = 0  # 去除低頻部分
+    fshift[crow-20:crow+20, ccol-20:ccol+20] = 0
     f_ishift = np.fft.ifftshift(fshift)
     img_back = np.fft.ifft2(f_ishift)
     img_back = np.abs(img_back)
     img_back = cv2.normalize(img_back, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     return img_back
 
-# Unsharp Mask (銳化)
+# Unsharp Mask 提升詳細
 def apply_unsharp_mask(img):
     gaussian = cv2.GaussianBlur(img, (9, 9), 10.0)
     unsharp = cv2.addWeighted(img, 1.5, gaussian, -0.5, 0)
     return unsharp
 
-# 顏色空間提取（YCbCr）
-def extract_ycbcr_channels(img_array):
-    ycbcr = cv2.cvtColor(img_array, cv2.COLOR_RGB2YCrCb)
-    _, cb, cr = cv2.split(ycbcr)
-    return cb, cr
-
-# 隨機數據增強（旋轉、平移、裁剪）
-def augment_image(img_array):
-    # 隨機旋轉
-    angle = np.random.uniform(-15, 15)
-    M = cv2.getRotationMatrix2D((img_array.shape[1]//2, img_array.shape[0]//2), angle, 1)
-    img_array = cv2.warpAffine(img_array, M, (img_array.shape[1], img_array.shape[0]))
-    
-    # 隨機平移
-    tx = np.random.uniform(-10, 10)
-    ty = np.random.uniform(-10, 10)
-    M = np.float32([[1, 0, tx], [0, 1, ty]])
-    img_array = cv2.warpAffine(img_array, M, (img_array.shape[1], img_array.shape[0]))
-    
-    # 隨機裁剪
-    h, w, _ = img_array.shape
-    top = np.random.randint(0, h // 4)
-    left = np.random.randint(0, w // 4)
-    bottom = h - np.random.randint(0, h // 4)
-    right = w - np.random.randint(0, w // 4)
-    img_array = img_array[top:bottom, left:right]
-    img_array = cv2.resize(img_array, (224, 224))  # 重設回原大小
-    
-    return img_array
-
-# 合併預處理（FFT + USM + YCbCr + 數據增強）
+# 合併預處理 (FFT + USM)
 def preprocess_advanced(img):
+    # 大幅縮放 保護詳細
     img = img.resize((256, 256), Image.Resampling.LANCZOS)
     img = center_crop(img, (224, 224))
     img_array = np.array(img)
 
-    # FFT 高通濾波
+    # FFT 高速遮漏
     high_pass_img = apply_fft_high_pass(img_array)
     high_pass_img_color = cv2.merge([high_pass_img]*3)  # 換 RGB
 
     # Unsharp Mask
     enhanced_img = apply_unsharp_mask(high_pass_img_color)
 
-    # 顏色空間提取
-    cb, cr = extract_ycbcr_channels(img_array)
-    cb = cv2.resize(cb, (224, 224))
-    cr = cv2.resize(cr, (224, 224))
-    cbcr_3ch = cv2.merge([cb, cr, np.zeros_like(cb)])
+    # 接合所有這些元素 (最終對上 ResNet50)
+    final_input = preprocess_input(np.expand_dims(enhanced_img, axis=0))
 
-    # 增強圖像
-    augmented_img = augment_image(enhanced_img)
+    return final_input, enhanced_img
 
-    # 最終圖像處理
-    final_input = preprocess_input(np.expand_dims(augmented_img, axis=0))
+# ResNet50 預測
+def predict_with_resnet(img_tensor):
+    predictions = resnet_model.predict(img_tensor)
+    decoded = decode_predictions(predictions, top=3)[0]
+    label = decoded[0][1]
+    confidence = float(decoded[0][2])
+    return label, confidence, decoded
 
-    return final_input
-
-# 預測與顯示結果
-def predict_image(img):
-    processed_img = preprocess_advanced(img)
-    prediction = resnet_model.predict(processed_img)
-    decoded_pred = decode_predictions(prediction)
-    return decoded_pred
-
-# Streamlit 介面
-st.subheader("上傳一張圖片進行深偽檢測")
-
-uploaded_file = st.file_uploader("選擇一張圖片", type=["jpg", "jpeg", "png"])
-
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="上傳的圖片", use_container_width=True)
+# 載入自訂模型
+def load_custom_model_from_huggingface(model_url):
+    response = requests.get(model_url)
     
-    # 預測結果
-    pred_result = predict_image(image)
-
-    # 預測的信心分數
-    confidence = pred_result[0][0][2]
-
-    # 判斷預測結果
-    if confidence > 0.5:
-        final_label = "deepfake"
+    # 檢查下載是否成功
+    if response.status_code == 200:
+        try:
+            # 下載模型後，從 bytes 載入模型
+            model = load_model(BytesIO(response.content))
+            print("模型成功載入")
+            return model
+        except Exception as e:
+            print(f"載入模型失敗: {e}")
+            return None
     else:
-        final_label = "real"
+        print(f"下載失敗，HTTP 狀態碼: {response.status_code}")
+        return None
+
+# 自訂模型預測
+def predict_with_custom_model(img_tensor):
+    predictions = custom_model.predict(img_tensor)
+    confidence = predictions[0][0]  # 假設是二分類模型，返回預測信心度
+    return confidence
+
+# 載入自訂模型
+custom_model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
+custom_model = load_custom_model_from_huggingface(custom_model_url)
+
+if custom_model is None:
+    print("自訂模型加載失敗，請檢查模型文件或 URL。")
+else:
+    print("自訂模型加載成功！")
+
+uploaded_file = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
+
+if uploaded_file:
+    pil_img = Image.open(uploaded_file).convert("RGB")
+    st.image(pil_img, caption="原始圖片", use_container_width=True)
+
+    # 面部區域偵測
+    face_img = detect_face(pil_img)
+    if face_img is not None:
+        st.image(face_img, caption="檢測到的面部區域", use_container_width=True)
+    else:
+        st.write("未能偵測到面部區域")
+
+    # 預處理圖片
+    resnet_input, processed_img = preprocess_advanced(pil_img)
+    
+    # 使用 ResNet50 預測
+    _, confidence_resnet, _ = predict_with_resnet(resnet_input)
+
+    # 使用自訂模型預測
+    custom_confidence = 0
+    if custom_model:
+        custom_confidence = predict_with_custom_model(resnet_input)
+
+    # 判斷結果 (根據自訂模型的信心度)
+    final_label = "real" if custom_confidence < 0.5 else "deepfake"
 
     # 顯示結果
-    st.write(f"預測結果：{final_label}")
-    st.write(f"信心分數：{confidence:.2f}")
+    st.subheader("最終預測結果")
+    st.markdown(f"**預測結果**: `{final_label}`")
+    st.markdown(f"**ResNet50 信心分數**: {confidence_resnet:.2f}")
+    st.markdown(f"**自訂模型信心分數**: {custom_confidence:.2f}")
