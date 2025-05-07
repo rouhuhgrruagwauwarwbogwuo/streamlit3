@@ -8,17 +8,23 @@ from tensorflow.keras.models import load_model
 import requests
 from io import BytesIO
 from mtcnn import MTCNN
+import dlib
 
+# 設定頁面配置
 st.set_page_config(page_title="Deepfake 偵測", layout="centered")
 st.title("Deepfake 偵測工具")
 
-# 載入 ResNet50
+# 載入 ResNet50 預訓練模型
 resnet_model = ResNet50(weights='imagenet')
 
 # 載入 MTCNN 面部偵測模型
 mtcnn = MTCNN()
 
-# 圖像中央補白補滿 target size
+# 載入 Dlib 預訓練的人臉特徵點偵測模型
+detector = dlib.get_frontal_face_detector()
+predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")  # 需要下載 Dlib 預訓練模型
+
+# 圖像中央補白補滿
 def center_crop(img, target_size=(224, 224)):
     width, height = img.size
     new_width, new_height = target_size
@@ -38,6 +44,15 @@ def detect_face(img):
         return face_img
     else:
         return None
+
+# 使用 Dlib 特徵點偵測
+def detect_landmarks(face_img):
+    gray = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
+    faces = detector(gray)
+    if len(faces) > 0:
+        shape = predictor(gray, faces[0])
+        return shape
+    return None
 
 # 對圖片執行 FFT 與高速遮漏
 def apply_fft_high_pass(img_array):
@@ -117,37 +132,25 @@ custom_model = load_custom_model_from_huggingface(custom_model_url)
 if custom_model is None:
     print("自訂模型加載失敗，請檢查模型文件或 URL。")
 else:
-    print("自訂模型加載成功！")
+    print("自訂模型已加載")
 
-uploaded_file = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
-
+# 偵測預測結果
+uploaded_file = st.file_uploader("上傳影像", type=["jpg", "png", "jpeg"])
 if uploaded_file:
-    pil_img = Image.open(uploaded_file).convert("RGB")
-    st.image(pil_img, caption="原始圖片", use_container_width=True)
-
-    # 面部區域偵測
-    face_img = detect_face(pil_img)
-    if face_img is not None:
-        st.image(face_img, caption="檢測到的面部區域", use_container_width=True)
-    else:
-        st.write("未能偵測到面部區域")
-
-    # 預處理圖片
-    resnet_input, processed_img = preprocess_advanced(pil_img)
+    img = Image.open(uploaded_file)
+    img_tensor, enhanced_img = preprocess_advanced(img)
     
-    # 使用 ResNet50 預測
-    _, confidence_resnet, _ = predict_with_resnet(resnet_input)
-
-    # 使用自訂模型預測
-    custom_confidence = 0
-    if custom_model:
-        custom_confidence = predict_with_custom_model(resnet_input)
-
-    # 判斷結果 (根據自訂模型的信心度)
-    final_label = "real" if custom_confidence < 0.5 else "deepfake"
-
+    # 使用ResNet50進行預測
+    label, confidence, decoded_predictions = predict_with_resnet(img_tensor)
+    st.image(enhanced_img, caption="處理後影像", use_container_width=True)
+    st.write(f"ResNet50 預測結果: {label} (信心分數: {confidence:.2f})")
+    
+    # 自訂模型預測
+    custom_confidence = predict_with_custom_model(img_tensor)
+    st.write(f"自訂模型預測信心分數: {custom_confidence:.2f}")
+    
     # 顯示結果
-    st.subheader("最終預測結果")
-    st.markdown(f"**預測結果**: `{final_label}`")
-    st.markdown(f"**ResNet50 信心分數**: {confidence_resnet:.2f}")
-    st.markdown(f"**自訂模型信心分數**: {custom_confidence:.2f}")
+    if custom_confidence > 0.5:
+        st.write("這是一張 Deepfake 影像")
+    else:
+        st.write("這是一張真實影像")
