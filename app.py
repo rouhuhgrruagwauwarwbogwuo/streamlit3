@@ -34,7 +34,7 @@ def download_model():
 
 # 🔹 載入 ResNet50 模型
 resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
-resnet_classifier = Sequential([
+resnet_classifier = Sequential([ 
     resnet_model,
     Dense(1, activation='sigmoid')  
 ])
@@ -101,6 +101,16 @@ def predict_with_both_models(img):
     custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
     
     return resnet_label, resnet_prediction, custom_label, custom_prediction
+
+# 🔹 擷取圖片中的人臉區域
+def extract_face(img):
+    result = detector.detect_faces(np.array(img))
+    
+    if result:
+        x, y, width, height = result[0]['box']
+        face_img = img.crop((x, y, x + width, y + height))  # 擷取人臉區域
+        return face_img
+    return None  # 如果未偵測到人臉，返回 None
 
 # 🔹 顯示圖片和預測結果
 def show_prediction(img):
