@@ -74,8 +74,8 @@ def preprocess_advanced(img):
     # Unsharp Mask
     enhanced_img = apply_unsharp_mask(high_pass_img_color)
 
-    # Reshape to match model input, ensure the model expects (1, 224, 224, 3)
-    final_input = np.expand_dims(enhanced_img, axis=0)
+    # 接合所有這些元素 (最終對上 ResNet50)
+    final_input = preprocess_input(np.expand_dims(enhanced_img, axis=0))
 
     return final_input, enhanced_img
 
@@ -107,13 +107,9 @@ def load_custom_model_from_huggingface(model_url):
 
 # 自訂模型預測
 def predict_with_custom_model(img_tensor):
-    try:
-        predictions = custom_model.predict(img_tensor)
-        confidence = predictions[0][0]  # 假設是二分類模型，返回預測信心度
-        return confidence
-    except Exception as e:
-        print(f"預測時發生錯誤: {e}")
-        return None
+    predictions = custom_model.predict(img_tensor)
+    confidence = predictions[0][0]  # 假設是二分類模型，返回預測信心度
+    return confidence
 
 # 載入自訂模型
 custom_model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
@@ -137,13 +133,10 @@ if uploaded_file:
     
     # 自訂模型預測
     custom_confidence = predict_with_custom_model(img_tensor)
-    if custom_confidence is not None:
-        st.write(f"自訂模型預測信心分數: {custom_confidence:.2f}")
-        
-        # 顯示結果
-        if custom_confidence > 0.5:
-            st.write("這是一張 Deepfake 影像")
-        else:
-            st.write("這是一張真實影像")
+    st.write(f"自訂模型預測信心分數: {custom_confidence:.2f}")
+    
+    # 顯示結果
+    if custom_confidence > 0.5:
+        st.write("這是一張 Deepfake 影像")
     else:
-        st.write("自訂模型預測失敗，無法提供結果。")
+        st.write("這是一張真實影像")
