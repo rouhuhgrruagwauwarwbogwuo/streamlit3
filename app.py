@@ -55,6 +55,23 @@ else:
 # 🔹 初始化 MTCNN 人臉檢測器
 detector = MTCNN()
 
+# 🔹 擷取圖片中的人臉
+def extract_face(pil_img):
+    # 使用 MTCNN 偵測人臉
+    img_array = np.array(pil_img)
+    faces = detector.detect_faces(img_array)
+
+    if len(faces) > 0:
+        # 假設取第一張檢測到的人臉
+        x, y, width, height = faces[0]['box']
+        face = img_array[y:y+height, x:x+width]
+
+        # 將人臉圖轉回 PIL 物件
+        face_pil = Image.fromarray(face)
+        return face_pil
+    else:
+        return None
+
 # 🔹 中心裁切函數 - 避免高清圖片影響 ResNet50 預測
 def center_crop(img, target_size=(224, 224)):
     width, height = img.size
@@ -88,7 +105,7 @@ def preprocess_for_both_models(img):
 
     return resnet_input, custom_input
 
-# 🔹 進行預測並顯示 'Real' 或 'Deepfake'
+# 🔹 進行預測
 def predict_with_both_models(img):
     resnet_input, custom_input = preprocess_for_both_models(img)
     
@@ -106,12 +123,15 @@ def predict_with_both_models(img):
 def show_prediction(img):
     resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(img)
     
-    # 顯示原始圖片
+    # 顯示未經處理的圖片
     st.image(img, caption="原始圖片", use_container_width=True)
     
+    # 顯示偵測到的人臉並縮小圖片
+    st.image(img, caption="偵測到的人臉", use_container_width=False, width=300)
+    
     # 顯示預測結果
-    st.subheader(f"ResNet50 預測結果: {resnet_label} ({resnet_confidence:.2%})")
-    st.subheader(f"自訂 CNN 預測結果: {custom_label} ({custom_confidence:.2%})")
+    st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
+                 f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
 
 # 🔹 Streamlit 主應用程式
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
