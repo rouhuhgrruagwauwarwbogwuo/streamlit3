@@ -1,10 +1,9 @@
 import streamlit as st
 import numpy as np
-import cv2
 import tensorflow as tf
-from PIL import Image
 from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
 from tensorflow.keras.models import load_model
+from PIL import Image
 import requests
 from io import BytesIO
 from mtcnn import MTCNN
@@ -40,44 +39,20 @@ def detect_face(img):
     else:
         return None
 
-# 對圖片執行 FFT 與高速遮漏
-def apply_fft_high_pass(img_array):
-    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-    f = np.fft.fft2(gray)
-    fshift = np.fft.fftshift(f)
-    rows, cols = gray.shape
-    crow, ccol = rows // 2 , cols // 2
-    fshift[crow-20:crow+20, ccol-20:ccol+20] = 0
-    f_ishift = np.fft.ifftshift(fshift)
-    img_back = np.fft.ifft2(f_ishift)
-    img_back = np.abs(img_back)
-    img_back = cv2.normalize(img_back, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    return img_back
-
-# Unsharp Mask 提升詳細
-def apply_unsharp_mask(img):
-    gaussian = cv2.GaussianBlur(img, (9, 9), 10.0)
-    unsharp = cv2.addWeighted(img, 1.5, gaussian, -0.5, 0)
-    return unsharp
-
-# 合併預處理 (FFT + USM)
+# 預處理影像，確保符合模型要求的格式
 def preprocess_advanced(img):
-    # 大幅縮放 保護詳細
     img = img.resize((256, 256), Image.Resampling.LANCZOS)
     img = center_crop(img, (224, 224))
     img_array = np.array(img)
+    
+    # 確保 img_array 是 float32 且標準化
+    img_array = img_array.astype(np.float32)
+    img_array /= 255.0
 
-    # FFT 高速遮漏
-    high_pass_img = apply_fft_high_pass(img_array)
-    high_pass_img_color = cv2.merge([high_pass_img]*3)  # 換 RGB
-
-    # Unsharp Mask
-    enhanced_img = apply_unsharp_mask(high_pass_img_color)
-
-    # 接合所有這些元素 (最終對上 ResNet50)
-    final_input = preprocess_input(np.expand_dims(enhanced_img, axis=0))
-
-    return final_input, img  # 返回原始圖像而不是處理後的圖像
+    # 增加批次維度 (batch dimension)
+    img_array = np.expand_dims(img_array, axis=0)
+    
+    return preprocess_input(img_array), img
 
 # ResNet50 預測
 def predict_with_resnet(img_tensor):
@@ -91,12 +66,10 @@ def predict_with_resnet(img_tensor):
 def load_custom_model_from_huggingface(model_url):
     response = requests.get(model_url)
     
-    # 檢查下載是否成功
     if response.status_code == 200:
         try:
-            # 下載模型後，從 bytes 載入模型
+            # 從 bytes 載入模型
             model = load_model(BytesIO(response.content))
-            print("模型成功載入")
             return model
         except Exception as e:
             print(f"載入模型失敗: {e}")
@@ -111,10 +84,6 @@ def predict_with_custom_model(img_tensor):
         print("自訂模型尚未加載，請檢查模型加載過程。")
         return None
     
-    # 確保 img_tensor 的形狀符合要求
-    img_tensor = np.expand_dims(img_tensor, axis=0)  # 增加 batch 維度
-    img_tensor = tf.image.resize(img_tensor, (224, 224))  # 確保尺寸為 224x224
-
     # 預測
     predictions = custom_model.predict(img_tensor)
     
@@ -125,11 +94,6 @@ def predict_with_custom_model(img_tensor):
 # 載入自訂模型
 custom_model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
 custom_model = load_custom_model_from_huggingface(custom_model_url)
-
-if custom_model is None:
-    print("自訂模型加載失敗，請檢查模型文件或 URL。")
-else:
-    print("自訂模型已加載")
 
 # 偵測結果
 uploaded_file = st.file_uploader("上傳影像", type=["jpg", "png", "jpeg"])
@@ -150,7 +114,7 @@ if uploaded_file:
         st.write(f"自訂模型預測信心分數: {custom_confidence:.2f}")
     
     # 顯示結果
-    if custom_confidence and custom_confidence > 0.5:
+    if custom_confidence is not None and custom_confidence > 0.5:
         st.write("這是一張 Deepfake 影像")
     else:
         st.write("這是一張真實影像")
