@@ -85,6 +85,9 @@ def preprocess_for_resnet(img):
         resnet_input = np.expand_dims(img_array, axis=-1)
         resnet_input = np.repeat(resnet_input, 3, axis=-1)  # 重複通道使其符合 RGB
 
+    # 檢查輸入形狀
+    print(f"ResNet 輸入形狀: {resnet_input.shape}")
+    
     return resnet_input
 
 # 🔹 ResNet50 預測
