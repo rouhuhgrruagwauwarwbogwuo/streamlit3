@@ -9,6 +9,7 @@ from mtcnn import MTCNN
 import tempfile
 import os
 import requests
+import cv2
 
 # 🔽 下載自訂 CNN 模型（從 Hugging Face）
 def download_model():
@@ -29,7 +30,7 @@ def download_model():
 # 🔹 載入 ResNet50 模型
 try:
     resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
-    resnet_classifier = Sequential([
+    resnet_classifier = Sequential([ 
         resnet_model,
         Dense(1, activation='sigmoid')  
     ])
