@@ -5,7 +5,7 @@ from tensorflow.keras.applications import ResNet50
 from tensorflow.keras.applications.resnet50 import preprocess_input
 import random
 
-# 🔹 增加圖片增強與處理
+# 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
 def preprocess_for_both_models(img):
     # 1️⃣ **高清圖處理：LANCZOS 縮圖**
     img = img.resize((256, 256), Image.Resampling.LANCZOS)
@@ -69,15 +69,67 @@ def center_crop(img, target_size):
     img = img.crop((left, top, right, bottom))
     return img
 
-# 🔹 測試用的圖片處理示範
+# 🔹 使用 ResNet50 模型進行預測
+def predict_with_resnet(img):
+    # 預處理圖片
+    resnet_input, _ = preprocess_for_both_models(img)
+
+    # 載入 ResNet50 模型
+    resnet_model = ResNet50(weights='imagenet')
+
+    # 預測結果
+    predictions = resnet_model.predict(resnet_input)
+
+    # 將預測結果轉為標籤與信心分數
+    label = np.argmax(predictions)
+    confidence = predictions[0][label]
+
+    return label, confidence
+
+# 🔹 影片偵測：逐幀處理影片並顯示結果
+def process_video(input_video_path, output_video_path):
+    # 讀取影片
+    cap = cv2.VideoCapture(input_video_path)
+
+    # 影片編碼器設置
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    out = cv2.VideoWriter(output_video_path, fourcc, 20.0, (640, 480))
+
+    while(cap.isOpened()):
+        ret, frame = cap.read()
+
+        if not ret:
+            break
+
+        # 將當前幀轉為 PIL 影像格式
+        img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+        # 使用 ResNet50 進行預測
+        label, confidence = predict_with_resnet(img)
+
+        # 顯示結果文字
+        label_text = 'Deepfake' if label == 1 else 'Real'
+        confidence_text = f'{confidence * 100:.2f}%'
+
+        # 在畫面上繪製結果
+        cv2.putText(frame, f'{label_text} - {confidence_text}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+
+        # 顯示處理後的幀
+        out.write(frame)  # 保存處理過的幀
+        cv2.imshow('frame', frame)  # 顯示當前幀
+
+        # 若按下 'q' 鍵，退出處理
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    out.release()
+    cv2.destroyAllWindows()
+
+# 🔹 測試影片偵測
 if __name__ == "__main__":
-    # 載入圖片
-    img_path = "your_image_path.jpg"  # 請替換為圖片路徑
-    img = Image.open(img_path)
+    input_video_path = "input_video.mp4"  # 請替換為輸入影片檔案路徑
+    output_video_path = "output_video.avi"  # 請替換為輸出影片檔案路徑
 
-    # 預處理圖片，適用於 ResNet50 和自訂 CNN
-    resnet_input, custom_input = preprocess_for_both_models(img)
-
-    # 輸出處理後的圖片尺寸與格式
-    print(f"ResNet50 Input Shape: {resnet_input.shape}")
-    print(f"Custom CNN Input Shape: {custom_input.shape}")
+    # 處理影片並保存結果
+    process_video(input_video_path, output_video_path)
