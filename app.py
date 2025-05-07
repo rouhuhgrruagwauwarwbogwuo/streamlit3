@@ -16,23 +16,25 @@ import h5py
 from moviepy.editor import ImageSequenceClip
 
 # ✅ 檢查並串流下載模型檔案
-
 def download_model():
     model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
     model_filename = "deepfake_cnn_model.h5"
 
     if not os.path.exists(model_filename):
         response = requests.get(model_url, stream=True)
-        if response.status_code == 200:
+        content_type = response.headers.get("Content-Type")
+
+        if response.status_code == 200 and "application/octet-stream" in content_type:
             with open(model_filename, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
             print("✅ 模型檔案下載成功")
         else:
-            print(f"❌ 下載失敗，狀態碼：{response.status_code}")
+            print(f"❌ 模型下載失敗，請確認 URL 是否正確（狀態碼: {response.status_code}, Content-Type: {content_type}）")
             return None
     else:
         print(f"📁 模型檔案 {model_filename} 已存在")
+
     return model_filename
 
 # 🔹 載入 ResNet50 模型
@@ -45,7 +47,13 @@ resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=
 
 # 🔹 載入自訂 CNN 模型
 model_path = download_model()
-custom_model = load_model(model_path) if model_path else None
+custom_model = None
+if model_path:
+    try:
+        custom_model = load_model(model_path)
+    except Exception as e:
+        st.warning("⚠️ 自訂模型載入失敗，將略過 CNN 模型推論")
+        st.error(f"錯誤訊息：{e}")
 
 # 🔹 初始化 MTCNN 人臉檢測器
 detector = MTCNN()
@@ -82,8 +90,8 @@ def predict_labels(pil_img):
     resized_img = pil_img.resize((256, 256))
     resnet_input = preprocess_input(np.expand_dims(np.array(resized_img), axis=0))
     cnn_input = preprocess_image(pil_img)
-    resnet_pred = resnet_classifier.predict(resnet_input)[0][0]
-    cnn_pred = custom_model.predict(cnn_input)[0][0] if custom_model else 0
+    resnet_pred = resnet_classifier.predict(resnet_input, verbose=0)[0][0]
+    cnn_pred = custom_model.predict(cnn_input, verbose=0)[0][0] if custom_model else 0
     return resnet_pred, cnn_pred
 
 # 🔹 Streamlit App
@@ -100,7 +108,10 @@ with tab1:
         st.image(face_img.resize((200, 200)), caption="人臉或原圖 (縮小版)", use_container_width=False)
         r_score, c_score = predict_labels(face_img)
         st.subheader(f"ResNet50 預測: {'Deepfake' if r_score > 0.5 else 'Real'} ({r_score:.2%})")
-        st.subheader(f"Custom CNN 預測: {'Deepfake' if c_score > 0.5 else 'Real'} ({c_score:.2%})")
+        if custom_model:
+            st.subheader(f"Custom CNN 預測: {'Deepfake' if c_score > 0.5 else 'Real'} ({c_score:.2%})")
+        else:
+            st.info("🔍 尚未載入自訂 CNN 模型，僅顯示 ResNet50 預測結果。")
 
 with tab2:
     st.header("影片偵測")
@@ -113,7 +124,6 @@ with tab2:
 
         cap = cv2.VideoCapture(video_path)
         frames = []
-        pred_labels = []
 
         while cap.isOpened():
             ret, frame = cap.read()
@@ -135,7 +145,6 @@ with tab2:
 
         cap.release()
 
-        # 輸出影片
         out_path = "output.mp4"
         clip = ImageSequenceClip([cv2.cvtColor(f, cv2.COLOR_RGB2BGR) for f in frames], fps=10)
         clip.write_videofile(out_path, codec="libx264")
