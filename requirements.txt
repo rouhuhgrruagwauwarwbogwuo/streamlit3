@@ -1,10 +1,8 @@
-streamlit
-opencv-python-headless
-tensorflow
-keras
+streamlit==1.35.0
+tensorflow==2.15.0
+keras==2.15.0
+opencv-python
 mtcnn
 Pillow
 numpy
-huggingface_hub
-scipy
-
+requests
