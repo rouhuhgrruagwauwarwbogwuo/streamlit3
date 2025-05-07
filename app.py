@@ -56,26 +56,28 @@ def preprocess_advanced(img):
 
 # ResNet50 預測
 def predict_with_resnet(img_tensor):
-    predictions = resnet_model.predict(img_tensor)
-    decoded = decode_predictions(predictions, top=3)[0]
-    label = decoded[0][1]
-    confidence = float(decoded[0][2])
-    return label, confidence, decoded
+    try:
+        predictions = resnet_model.predict(img_tensor)
+        decoded = decode_predictions(predictions, top=3)[0]
+        label = decoded[0][1]
+        confidence = float(decoded[0][2])
+        return label, confidence, decoded
+    except Exception as e:
+        print(f"ResNet50 預測出錯: {e}")
+        return None, 0, []
 
 # 載入自訂模型
 def load_custom_model_from_huggingface(model_url):
-    response = requests.get(model_url)
-    
-    if response.status_code == 200:
-        try:
-            # 從 bytes 載入模型
+    try:
+        response = requests.get(model_url)
+        if response.status_code == 200:
             model = load_model(BytesIO(response.content))
             return model
-        except Exception as e:
-            print(f"載入模型失敗: {e}")
+        else:
+            print(f"下載失敗，HTTP 狀態碼: {response.status_code}")
             return None
-    else:
-        print(f"下載失敗，HTTP 狀態碼: {response.status_code}")
+    except Exception as e:
+        print(f"載入自訂模型出錯: {e}")
         return None
 
 # 自訂模型預測
@@ -84,16 +86,22 @@ def predict_with_custom_model(img_tensor):
         print("自訂模型尚未加載，請檢查模型加載過程。")
         return None
     
-    # 預測
-    predictions = custom_model.predict(img_tensor)
-    
-    # 假設是二分類模型，返回預測信心度
-    confidence = predictions[0][0]
-    return confidence
+    try:
+        predictions = custom_model.predict(img_tensor)
+        confidence = predictions[0][0]
+        return confidence
+    except Exception as e:
+        print(f"自訂模型預測出錯: {e}")
+        return None
 
 # 載入自訂模型
 custom_model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
 custom_model = load_custom_model_from_huggingface(custom_model_url)
+
+if custom_model is None:
+    print("自訂模型加載失敗，請檢查模型文件或 URL。")
+else:
+    print("自訂模型已加載")
 
 # 偵測結果
 uploaded_file = st.file_uploader("上傳影像", type=["jpg", "png", "jpeg"])
@@ -106,7 +114,8 @@ if uploaded_file:
     
     # 使用ResNet50進行預測
     label, confidence, decoded_predictions = predict_with_resnet(img_tensor)
-    st.write(f"ResNet50 預測結果: {label} (信心分數: {confidence:.2f})")
+    if label:
+        st.write(f"ResNet50 預測結果: {label} (信心分數: {confidence:.2f})")
     
     # 自訂模型預測
     custom_confidence = predict_with_custom_model(img_tensor)
