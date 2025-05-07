@@ -4,7 +4,6 @@ import cv2
 import tensorflow as tf
 from PIL import Image
 from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
-from tensorflow.keras.models import load_model
 import requests
 from io import BytesIO
 
@@ -24,11 +23,6 @@ def center_crop(img, target_size=(224, 224)):
     right = (width + new_width) // 2
     bottom = (height + new_height) // 2
     return img.crop((left, top, right, bottom))
-
-# 調整對比度與亮度
-def adjust_contrast_brightness(image):
-    contrast = cv2.convertScaleAbs(image, alpha=1.5, beta=0)
-    return contrast
 
 # 頻率域高通濾波
 def apply_fft_high_pass(img_array):
@@ -123,5 +117,18 @@ if uploaded_file is not None:
     image = Image.open(uploaded_file)
     st.image(image, caption="上傳的圖片", use_container_width=True)
     
+    # 預測結果
     pred_result = predict_image(image)
-    st.write(f"預測結果：{pred_result[0][0][1]} - 信心分數: {pred_result[0][0][2]:.2f}")
+
+    # 預測的信心分數
+    confidence = pred_result[0][0][2]
+
+    # 判斷預測結果
+    if confidence > 0.5:
+        final_label = "deepfake"
+    else:
+        final_label = "real"
+
+    # 顯示結果
+    st.write(f"預測結果：{final_label}")
+    st.write(f"信心分數：{confidence:.2f}")
