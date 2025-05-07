@@ -51,10 +51,10 @@ def extract_ycbcr_channels(img_array):
     return cb, cr
 
 # 合併預處理 (FFT + USM + YCbCr)
-def preprocess_advanced(img):
+def preprocess_for_high_res(img):
     # 大幅縮放 保護詳細
-    img = img.resize((256, 256), Image.Resampling.LANCZOS)
-    img = center_crop(img, (224, 224))
+    img = img.resize((512, 512), Image.Resampling.LANCZOS)  # 高解析度
+    img = center_crop(img, (224, 224))  # 再裁剪至 224x224
     img_array = np.array(img)
 
     # FFT 高速遮漏
@@ -70,7 +70,7 @@ def preprocess_advanced(img):
     cr = cv2.resize(cr, (224, 224))
     cbcr_3ch = cv2.merge([cb, cr, np.zeros_like(cb)])
 
-    # 接合所有這些元素 (最終對上 ResNet50)
+    # 最終輸入處理
     final_input = preprocess_input(np.expand_dims(enhanced_img, axis=0))
 
     return final_input, enhanced_img, cbcr_3ch
@@ -116,14 +116,15 @@ if custom_model is None:
 else:
     print("自訂模型加載成功！")
 
+# 用戶上傳圖片
 uploaded_file = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
     pil_img = Image.open(uploaded_file).convert("RGB")
     st.image(pil_img, caption="原始圖片", use_container_width=True)
 
-    # 預處理圖片
-    resnet_input, processed_img, cbcr_img = preprocess_advanced(pil_img)
+    # 預處理高清圖片
+    resnet_input, processed_img, cbcr_img = preprocess_for_high_res(pil_img)
     
     # 使用 ResNet50 預測
     _, confidence_resnet, _ = predict_with_resnet(resnet_input)
@@ -139,3 +140,5 @@ if uploaded_file:
     # 顯示結果
     st.subheader("最終預測結果")
     st.markdown(f"**預測結果**: `{final_label}`")
+    st.markdown(f"ResNet50 信心度: {confidence_resnet * 100:.2f}%")
+    st.markdown(f"自訂模型信心度: {custom_confidence * 100:.2f}%")
