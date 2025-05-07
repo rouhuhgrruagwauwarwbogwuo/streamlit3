@@ -110,7 +110,8 @@ def extract_face(img):
         x, y, width, height = result[0]['box']
         face_img = img.crop((x, y, x + width, y + height))  # 擷取人臉區域
         return face_img
-    return None  # 如果未偵測到人臉，返回 None
+    else:
+        return img  # 如果未偵測到人臉，返回原始圖片
 
 # 🔹 顯示圖片和預測結果
 def show_prediction(img):
@@ -142,12 +143,8 @@ with tab1:
 
         # 嘗試擷取人臉區域
         face_img = extract_face(pil_img)
-        if face_img:
-            st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-            show_prediction(face_img)  
-        else:
-            st.write("未偵測到人臉，使用整體圖片進行預測")
-            show_prediction(pil_img)
+        st.image(face_img, caption="偵測到的人臉或原圖", use_container_width=False, width=300)
+        show_prediction(face_img)
 
 # ---------- 影片 ----------
 with tab2:
@@ -171,9 +168,8 @@ with tab2:
             if frame_idx % 10 == 0:
                 frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                 face_img = extract_face(frame_pil)
-                if face_img:
-                    st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-                    show_prediction(face_img)
-                    break  
+                st.image(face_img, caption="偵測到的人臉或原圖", use_container_width=False, width=300)
+                show_prediction(face_img)
+                break  
             frame_idx += 1
         cap.release()
