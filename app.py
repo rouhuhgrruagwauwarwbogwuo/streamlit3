@@ -77,7 +77,7 @@ def preprocess_advanced(img):
     # 接合所有這些元素 (最終對上 ResNet50)
     final_input = preprocess_input(np.expand_dims(enhanced_img, axis=0))
 
-    return final_input, enhanced_img
+    return final_input, img  # 返回原始圖像而不是處理後的圖像
 
 # ResNet50 預測
 def predict_with_resnet(img_tensor):
@@ -135,11 +135,13 @@ else:
 uploaded_file = st.file_uploader("上傳影像", type=["jpg", "png", "jpeg"])
 if uploaded_file:
     img = Image.open(uploaded_file)
-    img_tensor, enhanced_img = preprocess_advanced(img)
+    img_tensor, original_img = preprocess_advanced(img)
+    
+    # 顯示原始圖片
+    st.image(original_img, caption="原始圖片", use_container_width=True)
     
     # 使用ResNet50進行預測
     label, confidence, decoded_predictions = predict_with_resnet(img_tensor)
-    st.image(enhanced_img, caption="處理後影像", use_container_width=True)
     st.write(f"ResNet50 預測結果: {label} (信心分數: {confidence:.2f})")
     
     # 自訂模型預測
