@@ -27,12 +27,17 @@ def download_model():
     return model_filename
 
 # 🔹 載入 ResNet50 模型
-resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
-resnet_classifier = Sequential([
-    resnet_model,
-    Dense(1, activation='sigmoid')  
-])
-resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+try:
+    resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
+    resnet_classifier = Sequential([
+        resnet_model,
+        Dense(1, activation='sigmoid')  
+    ])
+    resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    print("ResNet50 模型已成功載入")
+except Exception as e:
+    print(f"載入 ResNet50 模型時發生錯誤：{e}")
+    resnet_classifier = None
 
 # 🔹 載入自訂 CNN 模型
 model_path = download_model()
