@@ -8,7 +8,6 @@ from tensorflow.keras.models import load_model
 import requests
 from io import BytesIO
 from mtcnn import MTCNN
-import dlib
 
 # 設定頁面配置
 st.set_page_config(page_title="Deepfake 偵測", layout="centered")
@@ -19,10 +18,6 @@ resnet_model = ResNet50(weights='imagenet')
 
 # 載入 MTCNN 面部偵測模型
 mtcnn = MTCNN()
-
-# 載入 Dlib 預訓練的人臉特徵點偵測模型
-detector = dlib.get_frontal_face_detector()
-predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")  # 需要下載 Dlib 預訓練模型
 
 # 圖像中央補白補滿
 def center_crop(img, target_size=(224, 224)):
@@ -44,15 +39,6 @@ def detect_face(img):
         return face_img
     else:
         return None
-
-# 使用 Dlib 特徵點偵測
-def detect_landmarks(face_img):
-    gray = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
-    faces = detector(gray)
-    if len(faces) > 0:
-        shape = predictor(gray, faces[0])
-        return shape
-    return None
 
 # 對圖片執行 FFT 與高速遮漏
 def apply_fft_high_pass(img_array):
