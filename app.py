@@ -122,7 +122,7 @@ only_resnet = st.sidebar.checkbox("僅顯示 ResNet50 預測", value=False)
 # 分頁
 tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
 
-# ---------- 圖片 ----------
+# ---------- 圖片 ---------- 
 with tab1:
     st.header("圖片偵測")
     uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
@@ -138,7 +138,7 @@ with tab1:
             st.write("未偵測到人臉，使用整體圖片進行預測")
             show_prediction(pil_img, only_resnet)
 
-# ---------- 影片 ----------
+# ---------- 影片 ---------- 
 with tab2:
     st.header("影片偵測（僅分析前幾幀）")
     uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
