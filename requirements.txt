@@ -6,4 +6,3 @@ mtcnn
 Pillow
 numpy
 huggingface_hub
-moviepy
