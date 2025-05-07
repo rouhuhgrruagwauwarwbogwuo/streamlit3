@@ -2,28 +2,13 @@ import streamlit as st
 import numpy as np
 import cv2
 from PIL import Image
-from keras.applications.resnet50 import ResNet50, preprocess_input
-from keras.models import load_model
-from mtcnn import MTCNN
-import tempfile
-import os
+from keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
+import tensorflow as tf
 
-# 載入模型
-resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg')
+# 載入模型（使用預設 ImageNet 預訓練模型）
+resnet_model = ResNet50(weights='imagenet')
 
-# 偵測人臉
-def extract_face(image):
-    detector = MTCNN()
-    image_np = np.array(image)
-    results = detector.detect_faces(image_np)
-    if results:
-        x, y, w, h = results[0]['box']
-        face = image_np[y:y+h, x:x+w]
-        return Image.fromarray(face)
-    else:
-        return image
-
-# 中心裁切
+# 圖片中心裁切函數
 def center_crop(img, target_size):
     width, height = img.size
     new_width, new_height = target_size
@@ -33,59 +18,55 @@ def center_crop(img, target_size):
     bottom = (height + new_height) // 2
     return img.crop((left, top, right, bottom))
 
-# 圖片預處理
-def preprocess_image(img):
+# 📌 圖像預處理（針對 ResNet50）
+def preprocess_for_resnet(img):
+    # 高清圖縮放
+    if img.width > 800 or img.height > 800:
+        img = img.resize((800, 800), Image.Resampling.LANCZOS)
+
+    # LANCZOS 縮圖再中心裁切
     img = img.resize((256, 256), Image.Resampling.LANCZOS)
     img = center_crop(img, (224, 224))
     img_array = np.array(img)
-    img_array = cv2.GaussianBlur(img_array, (3, 3), 0)
+
+    # 加強模糊處理（避免過清晰誤判）
+    img_array = cv2.GaussianBlur(img_array, (5, 5), 1.0)
+
+    # 高通濾波保留邊緣
+    kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+    img_array = cv2.filter2D(img_array, -1, kernel)
+
+    # 預處理給 ResNet50
     resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
     return resnet_input
 
-# ResNet 預測
+# 預測函數
 def predict_with_resnet(img):
-    img_array = preprocess_image(img)
-    prediction = resnet_model.predict(img_array)
-    confidence = float(np.mean(prediction))
-    label = "deepfake" if confidence >= 0.5 else "real"
-    return label, confidence
+    img_array = preprocess_for_resnet(img)
+    predictions = resnet_model.predict(img_array)
+    decoded = decode_predictions(predictions, top=1)[0][0]
+    label = decoded[1]
+    confidence = float(decoded[2])
 
-# 頁面介面
-st.title("🔍 Deepfake 偵測系統")
-st.header("請上傳圖片或影片，我們將判斷其真實性")
+    # 自定義標籤：你可以依據模型輸出決定
+    # 模擬邏輯：以 'mask', 'fake', 'screen', 'monitor' 等視為 deepfake
+    deepfake_keywords = ['mask', 'screen', 'monitor', 'projector', 'fake']
+    if any(k in label.lower() for k in deepfake_keywords):
+        return "deepfake", confidence
+    return "real", confidence
 
-uploaded_file = st.file_uploader("請選擇圖片或影片", type=["jpg", "jpeg", "png", "mp4"])
+# Streamlit App
+st.title("📷 Deepfake 圖片偵測 (ResNet50 版本)")
 
-if uploaded_file:
-    file_type = uploaded_file.type
-    
-    if 'image' in file_type:
-        img = Image.open(uploaded_file).convert('RGB')
-        face_img = extract_face(img)
-        st.image(face_img, caption='擷取的人臉', use_container_width=True)
-        label, confidence = predict_with_resnet(face_img)
-        st.subheader(f"🧠 判斷結果：{label.upper()} ({confidence:.2f})")
+uploaded_file = st.file_uploader("請上傳圖片", type=["jpg", "jpeg", "png"])
 
-    elif 'video' in file_type:
-        st.video(uploaded_file)
-        tfile = tempfile.NamedTemporaryFile(delete=False)
-        tfile.write(uploaded_file.read())
-        cap = cv2.VideoCapture(tfile.name)
+if uploaded_file is not None:
+    pil_img = Image.open(uploaded_file).convert('RGB')
+    st.image(pil_img, caption='上傳圖片', use_container_width=True)
 
-        frame_count = 0
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
+    label, confidence = predict_with_resnet(pil_img)
 
-            if frame_count % 10 == 0:
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img_pil = Image.fromarray(rgb_frame)
-                face_img = extract_face(img_pil)
-                label, confidence = predict_with_resnet(face_img)
-                st.image(face_img, caption=f"Frame {frame_count} - {label.upper()} ({confidence:.2f})", use_container_width=True)
-
-            frame_count += 1
-
-        cap.release()
-        os.unlink(tfile.name)
+    st.markdown("---")
+    st.subheader("🔍 偵測結果")
+    st.write(f"🧠 模型判斷：**{label.upper()}**")
+    st.write(f"🔢 信心分數：{confidence:.2f}")
