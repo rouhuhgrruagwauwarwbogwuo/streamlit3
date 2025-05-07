@@ -139,4 +139,5 @@ if uploaded_file:
     # 顯示結果
     st.subheader("最終預測結果")
     st.markdown(f"**預測結果**: `{final_label}`")
-
+    st.markdown(f"**ResNet50 預測信心度**: {confidence_resnet:.2f}")
+    st.markdown(f"**自訂模型預測信心度**: {custom_confidence:.2f}")
