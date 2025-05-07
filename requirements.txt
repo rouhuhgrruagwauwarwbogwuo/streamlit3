@@ -7,4 +7,3 @@ Pillow
 numpy
 huggingface_hub
 scipy
-dlib
