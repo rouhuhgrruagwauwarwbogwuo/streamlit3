@@ -4,12 +4,11 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras.applications import ResNet50
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
-from PIL import Image
-import cv2
-from mtcnn import MTCNN
+from PIL import Image, ImageEnhance, ImageFilter
 import tempfile
 import os
 import requests
+from mtcnn import MTCNN
 
 # 🔽 下載自訂 CNN 模型（從 Hugging Face）
 def download_model():
@@ -80,23 +79,23 @@ def center_crop(img, target_size=(224, 224)):
 
 # 🔹 CLAHE 預處理
 def apply_clahe(image):
-    img = np.array(image.convert("L"))  # 轉為灰階
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    img_clahe = clahe.apply(img)
-    return Image.fromarray(img_clahe)
+    enhancer = ImageEnhance.Contrast(image)
+    image_clahe = enhancer.enhance(2)  # 增加對比度
+    return image_clahe
 
 # 🔹 頻域分析 (FFT)
 def apply_fft(image):
-    img = np.array(image)
-    # 轉換至灰階
-    img_gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    img_gray = image.convert('L')  # 轉換為灰階圖像
+    img_array = np.array(img_gray)
+
     # 計算傅立葉變換
-    f = np.fft.fft2(img_gray)
+    f = np.fft.fft2(img_array)
     fshift = np.fft.fftshift(f)
     magnitude_spectrum = np.log(np.abs(fshift) + 1)
-    
-    # 將結果轉回圖像
-    return Image.fromarray(np.uint8(magnitude_spectrum))
+
+    # 轉換回圖像
+    magnitude_spectrum_img = Image.fromarray(np.uint8(magnitude_spectrum * 255 / magnitude_spectrum.max()))
+    return magnitude_spectrum_img
 
 # 🔹 圖片預處理（包括 CLAHE 和 FFT）
 def preprocess_for_both_models(img):
