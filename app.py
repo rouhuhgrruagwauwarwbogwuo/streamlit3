@@ -138,4 +138,4 @@ if uploaded_file:
 
     # 顯示結果
     st.subheader("最終預測結果")
-    st.markdown(f"**預測結果**: {final_label}")
+    st.markdown(f"**預測結果**: `{final_label}`")
