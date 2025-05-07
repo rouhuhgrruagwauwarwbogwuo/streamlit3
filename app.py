@@ -12,9 +12,8 @@ from mtcnn import MTCNN
 import tempfile
 import os
 import requests
-import h5py
 
-# 檢查並下載模型檔案
+# 🔽 下載自訂 CNN 模型（從 Hugging Face）
 def download_model():
     model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
     model_filename = "deepfake_cnn_model.h5"
@@ -28,8 +27,6 @@ def download_model():
         else:
             print(f"下載失敗，狀態碼：{response.status_code}")
             return None
-    else:
-        print(f"模型檔案 {model_filename} 已存在")
     return model_filename
 
 # 🔹 載入 ResNet50 模型
@@ -57,22 +54,18 @@ detector = MTCNN()
 
 # 🔹 擷取圖片中的人臉
 def extract_face(pil_img):
-    # 使用 MTCNN 偵測人臉
     img_array = np.array(pil_img)
     faces = detector.detect_faces(img_array)
 
     if len(faces) > 0:
-        # 假設取第一張檢測到的人臉
         x, y, width, height = faces[0]['box']
         face = img_array[y:y+height, x:x+width]
-
-        # 將人臉圖轉回 PIL 物件
         face_pil = Image.fromarray(face)
         return face_pil
     else:
         return None
 
-# 🔹 中心裁切函數 - 避免高清圖片影響 ResNet50 預測
+# 🔹 中心裁切函數
 def center_crop(img, target_size=(224, 224)):
     width, height = img.size
     new_width, new_height = target_size
@@ -82,61 +75,51 @@ def center_crop(img, target_size=(224, 224)):
     bottom = top + new_height
     return img.crop((left, top, right, bottom))
 
-# 🔹 預處理圖片，確保 ResNet 和 自訂 CNN 都能處理
+# 🔹 圖片預處理
 def preprocess_for_both_models(img):
-    # 1️⃣ **高清圖處理：LANCZOS 縮圖**
     img = img.resize((256, 256), Image.Resampling.LANCZOS)
-
-    # 2️⃣ **ResNet50 必須 224x224**
     img = center_crop(img, (224, 224))
+    img_array = np.array(img)
 
-    img_array = np.array(img)  # 轉為 numpy array
+    # 可選：加模糊降雜訊
+    img_array = cv2.GaussianBlur(img_array, (3, 3), 0)
 
-    # 3️⃣ **可選：對 ResNet50 做 Gaussian Blur**
-    apply_blur = True  # 🚀 這裡可以開關
-    if apply_blur:
-        img_array = cv2.GaussianBlur(img_array, (3, 3), 0)
-
-    # 4️⃣ **ResNet50 特定預處理**
     resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
-
-    # 5️⃣ **自訂 CNN 正規化 (0~1)**
     custom_input = np.expand_dims(img_array / 255.0, axis=0)
 
     return resnet_input, custom_input
 
-# 🔹 進行預測
-def predict_with_both_models(img):
+# 🔹 模型預測
+def predict_with_both_models(img, only_resnet=False):
     resnet_input, custom_input = preprocess_for_both_models(img)
-    
-    # ResNet50 預測
     resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
     resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
-    
-    # 自訂 CNN 預測
-    custom_prediction = custom_model.predict(custom_input)[0][0] if custom_model else 0
-    custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
-    
-    return resnet_label, resnet_prediction, custom_label, custom_prediction
 
-# 🔹 顯示圖片和預測結果
-def show_prediction(img):
-    resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(img)
-    
-    # 顯示未經處理的圖片
+    if only_resnet or not custom_model:
+        return resnet_label, resnet_prediction, "", 0.0
+    else:
+        custom_prediction = custom_model.predict(custom_input)[0][0]
+        custom_label = "Deepfake" if custom_prediction > 0.5 else "Real"
+        return resnet_label, resnet_prediction, custom_label, custom_prediction
+
+# 🔹 顯示預測結果
+def show_prediction(img, only_resnet=False):
+    resnet_label, resnet_confidence, custom_label, custom_confidence = predict_with_both_models(img, only_resnet)
+
     st.image(img, caption="原始圖片", use_container_width=True)
-    
-    # 顯示偵測到的人臉並縮小圖片
     st.image(img, caption="偵測到的人臉", use_container_width=False, width=300)
-    
-    # 顯示預測結果
-    st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})\n"
-                 f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
+    st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})")
+    if not only_resnet:
+        st.subheader(f"Custom CNN: {custom_label} ({custom_confidence:.2%})")
 
-# 🔹 Streamlit 主應用程式
+# 🔹 Streamlit 主頁面
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖片與影片偵測器")
 
+# 🔹 側邊欄選項
+only_resnet = st.sidebar.checkbox("僅顯示 ResNet50 預測", value=False)
+
+# 分頁
 tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
 
 # ---------- 圖片 ----------
@@ -147,18 +130,17 @@ with tab1:
         pil_img = Image.open(uploaded_image).convert("RGB")
         st.image(pil_img, caption="原始圖片", use_container_width=True)
 
-        # 嘗試擷取人臉區域
         face_img = extract_face(pil_img)
         if face_img:
             st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-            show_prediction(face_img)  
+            show_prediction(face_img, only_resnet)
         else:
             st.write("未偵測到人臉，使用整體圖片進行預測")
-            show_prediction(pil_img)
+            show_prediction(pil_img, only_resnet)
 
 # ---------- 影片 ----------
 with tab2:
-    st.header("影片偵測（只顯示第一張預測結果）")
+    st.header("影片偵測（僅分析前幾幀）")
     uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
     if uploaded_video:
         st.video(uploaded_video)
@@ -180,7 +162,7 @@ with tab2:
                 face_img = extract_face(frame_pil)
                 if face_img:
                     st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-                    show_prediction(face_img)
-                    break  
+                    show_prediction(face_img, only_resnet)
+                    break
             frame_idx += 1
         cap.release()
