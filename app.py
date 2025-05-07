@@ -19,13 +19,17 @@ def download_model():
     model_filename = "deepfake_cnn_model.h5"
     
     if not os.path.exists(model_filename):
-        response = requests.get(model_url)
-        if response.status_code == 200:
-            with open(model_filename, "wb") as f:
-                f.write(response.content)
-            print("模型檔案已成功下載！")
-        else:
-            print(f"下載失敗，狀態碼：{response.status_code}")
+        try:
+            response = requests.get(model_url)
+            if response.status_code == 200:
+                with open(model_filename, "wb") as f:
+                    f.write(response.content)
+                print("模型檔案已成功下載！")
+            else:
+                print(f"下載失敗，狀態碼：{response.status_code}")
+                return None
+        except Exception as e:
+            print(f"下載模型時發生錯誤：{e}")
             return None
     return model_filename
 
@@ -122,7 +126,7 @@ only_resnet = st.sidebar.checkbox("僅顯示 ResNet50 預測", value=False)
 # 分頁
 tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
 
-# ---------- 圖片 ----------
+# ---------- 圖片 ---------- 
 with tab1:
     st.header("圖片偵測")
     uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
@@ -138,7 +142,7 @@ with tab1:
             st.write("未偵測到人臉，使用整體圖片進行預測")
             show_prediction(pil_img, only_resnet)
 
-# ---------- 影片 ----------
+# ---------- 影片 ---------- 
 with tab2:
     st.header("影片偵測（僅分析前幾幀）")
     uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
@@ -151,18 +155,21 @@ with tab2:
 
         st.info("🎬 擷取影片幀與進行預測中...")
         cap = cv2.VideoCapture(video_path)
-        frame_idx = 0
-
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            if frame_idx % 10 == 0:
-                frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                face_img = extract_face(frame_pil)
-                if face_img:
-                    st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-                    show_prediction(face_img, only_resnet)
+        
+        if not cap.isOpened():
+            st.error("無法打開影片檔案，請確認影片格式正確")
+        else:
+            frame_idx = 0
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
                     break
-            frame_idx += 1
-        cap.release()
+                if frame_idx % 10 == 0:
+                    frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                    face_img = extract_face(frame_pil)
+                    if face_img:
+                        st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
+                        show_prediction(face_img, only_resnet)
+                        break
+                frame_idx += 1
+            cap.release()
