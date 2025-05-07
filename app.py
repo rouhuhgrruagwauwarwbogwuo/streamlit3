@@ -1,12 +1,9 @@
 import numpy as np
 import streamlit as st
-import cv2
 from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications import ResNet50
-from tensorflow.keras.applications.resnet50 import preprocess_input
-from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
 from PIL import Image
 from mtcnn import MTCNN
 import tempfile
@@ -82,10 +79,10 @@ def preprocess_for_both_models(img):
     img_array = np.array(img)
 
     # 可選：加模糊降雜訊
-    img_array = cv2.GaussianBlur(img_array, (3, 3), 0)
+    img_array = img_array.astype(np.float32) / 255.0
 
-    resnet_input = preprocess_input(np.expand_dims(img_array, axis=0))
-    custom_input = np.expand_dims(img_array / 255.0, axis=0)
+    resnet_input = np.expand_dims(img_array, axis=0)
+    custom_input = np.expand_dims(img_array, axis=0)
 
     return resnet_input, custom_input
 
