@@ -109,6 +109,9 @@ def predict_with_resnet(img_tensor):
 
 # 自訓練模型預測（作為輔助參考）
 def predict_with_custom_model(img_tensor):
+    # 確保模型接受的是符合形狀的數據
+    img_tensor = np.expand_dims(img_tensor, axis=0)  # 添加批次維度
+    img_tensor = img_tensor.astype('float32') / 255.0  # 轉換為 [0, 1] 範圍
     predictions = custom_model.predict(img_tensor)
     return predictions
 
@@ -154,4 +157,4 @@ if uploaded_file:
     st.markdown("---")
     st.markdown("**Top-3 預測結果 (ResNet50):**")
     for _, name, score in _:
-        st.write(f"- {name}: {score:.4f}")
+        st.write
