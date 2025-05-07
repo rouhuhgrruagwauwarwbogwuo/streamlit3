@@ -73,11 +73,17 @@ def preprocess_for_resnet(img):
     img = apply_clahe(img)  # CLAHE 處理
     img = apply_fft(img)    # 頻域處理
     img = center_crop(img, (224, 224))  # 中心裁切
+
+    # 轉換為 numpy 陣列，並將數值範圍調整到 [0, 1]
     img_array = np.array(img)
     img_array = img_array.astype(np.float32) / 255.0
 
     # 擴展維度以符合模型輸入要求： (batch_size, height, width, channels)
-    resnet_input = np.expand_dims(img_array, axis=0)
+    if img_array.ndim == 3:  # 若圖片是 RGB 彩圖 (H, W, C)
+        resnet_input = np.expand_dims(img_array, axis=0)
+    else:  # 若圖片是灰階圖 (H, W)
+        resnet_input = np.expand_dims(img_array, axis=-1)
+        resnet_input = np.repeat(resnet_input, 3, axis=-1)  # 重複通道使其符合 RGB
 
     return resnet_input
 
