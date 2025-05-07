@@ -7,22 +7,13 @@ from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input, d
 from tensorflow.keras.models import load_model
 import requests
 from io import BytesIO
+import os
 
 st.set_page_config(page_title="Deepfake 偵測", layout="centered")
 st.title("Deepfake 偵測工具 (價值增強 + FFT + YCbCr)")
 
 # 載入 ResNet50
 resnet_model = ResNet50(weights='imagenet')
-
-# 載入 custom CNN 模型
-def load_custom_model_from_huggingface(model_url):
-    response = requests.get(model_url)
-    model = load_model(BytesIO(response.content))
-    return model
-
-# 使用您提供的 Hugging Face 模型 URL
-custom_model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
-custom_model = load_custom_model_from_huggingface(custom_model_url)
 
 # 圖像中央補白補滿 target size
 def center_crop(img, target_size=(224, 224)):
@@ -93,25 +84,39 @@ def predict_with_resnet(img_tensor):
     confidence = float(decoded[0][2])
     return label, confidence, decoded
 
-# Custom model 預測
-def predict_with_custom_model(img_tensor):
-    # 檢查自訓練模型的輸入形狀
-    print(f"Custom Model Input Shape: {custom_model.input_shape}")
+# 載入自訂模型
+def load_custom_model_from_huggingface(model_url):
+    response = requests.get(model_url)
     
-    # 檢查 img_tensor 的形狀
-    print(f"Input tensor shape before expand_dims: {img_tensor.shape}")
-    
-    # 如果模型期望的形狀是 (batch_size, 224, 224, 3)，確保圖片形狀正確
-    img_tensor = np.expand_dims(img_tensor, axis=0)  # 添加批次維度
-    print(f"Input tensor shape after expand_dims: {img_tensor.shape}")
-    
-    img_tensor = img_tensor.astype('float32') / 255.0  # 轉換為 [0, 1] 範圍
-    print(f"Input tensor dtype: {img_tensor.dtype}")
-    
-    predictions = custom_model.predict(img_tensor)
-    return predictions
+    # 檢查下載是否成功
+    if response.status_code == 200:
+        try:
+            # 下載模型後，從 bytes 載入模型
+            model = load_model(BytesIO(response.content))
+            print("模型成功載入")
+            return model
+        except Exception as e:
+            print(f"載入模型失敗: {e}")
+            return None
+    else:
+        print(f"下載失敗，HTTP 狀態碼: {response.status_code}")
+        return None
 
-# 使用 Streamlit 進行圖片上傳
+# 自訂模型預測
+def predict_with_custom_model(img_tensor):
+    predictions = custom_model.predict(img_tensor)
+    confidence = predictions[0][0]  # 假設是二分類模型，返回預測信心度
+    return confidence
+
+# 載入自訂模型
+custom_model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
+custom_model = load_custom_model_from_huggingface(custom_model_url)
+
+if custom_model is None:
+    print("自訂模型加載失敗，請檢查模型文件或 URL。")
+else:
+    print("自訂模型加載成功！")
+
 uploaded_file = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
@@ -120,25 +125,29 @@ if uploaded_file:
 
     # 預處理圖片
     resnet_input, processed_img, cbcr_img = preprocess_advanced(pil_img)
-
+    
     # 使用 ResNet50 預測
     label, confidence, decoded = predict_with_resnet(resnet_input)
 
-    # 使用 Custom CNN 模型輔助預測
-    custom_predictions = predict_with_custom_model(resnet_input)
-    custom_label = "deepfake" if custom_predictions[0][0] > 0.5 else "real"
-    custom_confidence = custom_predictions[0][0] if custom_predictions[0][0] > 0.5 else 1 - custom_predictions[0][0]
+    # 使用自訂模型預測
+    custom_confidence = 0
+    if custom_model:
+        custom_confidence = predict_with_custom_model(resnet_input)
 
-    st.subheader("ResNet50 預測結果")
-    st.markdown(f"**Top-1 類別**: `{label}`\n\n**信心度**: `{confidence:.4f}`")
+    # 判斷結果
+    if custom_confidence > 0.5:  # 假設 0.5 以上為 deepfake
+        final_label = "deepfake"
+    else:
+        final_label = label
 
-    st.subheader("Custom CNN 預測結果")
-    st.markdown(f"**預測類別**: `{custom_label}`\n\n**信心度**: `{custom_confidence:.4f}`")
+    # 顯示結果
+    st.subheader("預測結果")
+    st.markdown(f"**最終預測**: `{final_label}`\n\n**信心度**: `{confidence:.4f}` (ResNet50)\n\n**自訂模型信心度**: `{custom_confidence:.4f}`")
 
     st.subheader("預處圖")
     st.image(processed_img, caption="FFT + Unsharp Mask", use_container_width=True)
 
-    st.subheader("CbCr 分頹")
+    st.subheader("CbCr 分析")
     st.image(cbcr_img, caption="YCbCr - Cb/Cr Channels", use_container_width=True)
 
     st.markdown("---")
