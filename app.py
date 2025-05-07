@@ -5,7 +5,6 @@ import tensorflow as tf
 from PIL import Image
 from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
 from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import requests
 from io import BytesIO
 
@@ -45,17 +44,40 @@ def apply_unsharp_mask(img):
     unsharp = cv2.addWeighted(img, 1.5, gaussian, -0.5, 0)
     return unsharp
 
-# YCbCr 分析出 Cb 與 Cr
+# 顏色空間轉換（YCbCr）
 def extract_ycbcr_channels(img_array):
     ycbcr = cv2.cvtColor(img_array, cv2.COLOR_RGB2YCrCb)
     _, cb, cr = cv2.split(ycbcr)
     return cb, cr
 
-# 合併預處理 (FFT + USM + YCbCr)
-def preprocess_for_high_res(img):
-    # 大幅縮放 保護詳細
-    img = img.resize((512, 512), Image.Resampling.LANCZOS)  # 高解析度
-    img = center_crop(img, (224, 224))  # 再裁剪至 224x224
+# 隨機數據增強（旋轉、平移、裁剪）
+def augment_image(img_array):
+    # 隨機旋轉
+    angle = np.random.uniform(-15, 15)
+    M = cv2.getRotationMatrix2D((img_array.shape[1]//2, img_array.shape[0]//2), angle, 1)
+    img_array = cv2.warpAffine(img_array, M, (img_array.shape[1], img_array.shape[0]))
+    
+    # 隨機平移
+    tx = np.random.uniform(-10, 10)
+    ty = np.random.uniform(-10, 10)
+    M = np.float32([[1, 0, tx], [0, 1, ty]])
+    img_array = cv2.warpAffine(img_array, M, (img_array.shape[1], img_array.shape[0]))
+    
+    # 隨機裁剪
+    h, w, _ = img_array.shape
+    top = np.random.randint(0, h // 4)
+    left = np.random.randint(0, w // 4)
+    bottom = h - np.random.randint(0, h // 4)
+    right = w - np.random.randint(0, w // 4)
+    img_array = img_array[top:bottom, left:right]
+    img_array = cv2.resize(img_array, (224, 224))  # 重設回原大小
+    
+    return img_array
+
+# 合併預處理（FFT + USM + YCbCr + 數據增強）
+def preprocess_advanced(img):
+    img = img.resize((256, 256), Image.Resampling.LANCZOS)
+    img = center_crop(img, (224, 224))
     img_array = np.array(img)
 
     # FFT 高速遮漏
@@ -65,14 +87,17 @@ def preprocess_for_high_res(img):
     # Unsharp Mask
     enhanced_img = apply_unsharp_mask(high_pass_img_color)
 
-    # YCbCr 提取 Cb/Cr
+    # 顏色空間提取
     cb, cr = extract_ycbcr_channels(img_array)
     cb = cv2.resize(cb, (224, 224))
     cr = cv2.resize(cr, (224, 224))
     cbcr_3ch = cv2.merge([cb, cr, np.zeros_like(cb)])
 
-    # 最終輸入處理
-    final_input = preprocess_input(np.expand_dims(enhanced_img, axis=0))
+    # 增強圖像
+    augmented_img = augment_image(enhanced_img)
+
+    # 最終圖像處理
+    final_input = preprocess_input(np.expand_dims(augmented_img, axis=0))
 
     return final_input, enhanced_img, cbcr_3ch
 
@@ -88,10 +113,8 @@ def predict_with_resnet(img_tensor):
 def load_custom_model_from_huggingface(model_url):
     response = requests.get(model_url)
     
-    # 檢查下載是否成功
     if response.status_code == 200:
         try:
-            # 下載模型後，從 bytes 載入模型
             model = load_model(BytesIO(response.content))
             print("模型成功載入")
             return model
@@ -108,19 +131,6 @@ def predict_with_custom_model(img_tensor):
     confidence = predictions[0][0]  # 假設是二分類模型，返回預測信心度
     return confidence
 
-# 資料增強器
-def get_data_augmentation_generator():
-    datagen = ImageDataGenerator(
-        rotation_range=30,
-        width_shift_range=0.2,
-        height_shift_range=0.2,
-        shear_range=0.2,
-        zoom_range=0.2,
-        horizontal_flip=True,
-        fill_mode='nearest'
-    )
-    return datagen
-
 # 載入自訂模型
 custom_model_url = "https://huggingface.co/wuwuwu123123/deepfakemodel2/resolve/main/deepfake_cnn_model.h5"
 custom_model = load_custom_model_from_huggingface(custom_model_url)
@@ -130,15 +140,14 @@ if custom_model is None:
 else:
     print("自訂模型加載成功！")
 
-# 用戶上傳圖片
 uploaded_file = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
     pil_img = Image.open(uploaded_file).convert("RGB")
     st.image(pil_img, caption="原始圖片", use_container_width=True)
 
-    # 預處理高清圖片
-    resnet_input, processed_img, cbcr_img = preprocess_for_high_res(pil_img)
+    # 預處理圖片
+    resnet_input, processed_img, cbcr_img = preprocess_advanced(pil_img)
     
     # 使用 ResNet50 預測
     _, confidence_resnet, _ = predict_with_resnet(resnet_input)
@@ -154,5 +163,5 @@ if uploaded_file:
     # 顯示結果
     st.subheader("最終預測結果")
     st.markdown(f"**預測結果**: `{final_label}`")
-    st.markdown(f"ResNet50 信心度: {confidence_resnet * 100:.2f}%")
-    st.markdown(f"自訂模型信心度: {custom_confidence * 100:.2f}%")
+    st.markdown(f"**ResNet50 信心度**: {confidence_resnet*100:.2f}%")
+    st.markdown(f"**自訂模型信心度**: {custom_confidence*100:.2f}%")
