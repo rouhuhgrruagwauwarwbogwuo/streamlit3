@@ -83,6 +83,12 @@ def preprocess_advanced(img):
 
     return final_input, enhanced_img, cbcr_3ch
 
+# 去除黑色區域的處理（替換黑色區域為白色）
+def remove_black_background(img_array):
+    # 假設黑色區域為 0
+    img_array[img_array == 0] = 255
+    return img_array
+
 # ResNet50 預測
 def predict_with_resnet(img_tensor):
     predictions = resnet_model.predict(img_tensor)
@@ -106,6 +112,9 @@ if uploaded_file:
     # 預處理圖片
     resnet_input, processed_img, cbcr_img = preprocess_advanced(pil_img)
 
+    # 去除黑色區域
+    processed_img_no_black = remove_black_background(processed_img)
+
     # 預測 ResNet50
     resnet_label, resnet_confidence, _ = predict_with_resnet(resnet_input)
 
@@ -123,9 +132,9 @@ if uploaded_file:
     st.subheader("自訓練模型預測結果 (作為參考)")
     st.markdown(f"**自訓練模型信心度**: `{custom_confidence:.4f}`")
 
-    # 顯示預處理後的圖片
-    st.subheader("預處理後的圖片")
-    st.image(processed_img, caption="FFT + Unsharp Mask", use_container_width=True)
+    # 顯示去除黑色區域後的預處理圖片
+    st.subheader("預處理後的圖片 (黑色區域已去除)")
+    st.image(processed_img_no_black, caption="去除黑色區域後的圖片", use_container_width=True)
 
     # 顯示 CbCr 分析結果
     st.subheader("CbCr 分析")
