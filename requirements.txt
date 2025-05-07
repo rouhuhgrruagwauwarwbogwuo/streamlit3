@@ -5,3 +5,4 @@ mtcnn
 Pillow
 numpy
 requests
+moviepy
