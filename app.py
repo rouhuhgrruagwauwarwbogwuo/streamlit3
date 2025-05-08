@@ -5,15 +5,15 @@ import requests
 from PIL import Image
 import cv2
 import tempfile
-from tensorflow.keras.applications import ResNet50, EfficientNetB0, Xception
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-from tensorflow.keras.applications.resnet50 import preprocess_input as preprocess_resnet
-from tensorflow.keras.applications.efficientnet import preprocess_input as preprocess_efficientnet
-from tensorflow.keras.applications.xception import preprocess_input as preprocess_xception
+from keras.applications import ResNet50, EfficientNetB0, Xception
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.applications.resnet50 import preprocess_input as preprocess_resnet
+from keras.applications.efficientnet import preprocess_input as preprocess_efficientnet
+from keras.applications.xception import preprocess_input as preprocess_xception
 from mtcnn import MTCNN
 import matplotlib.pyplot as plt
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from keras.preprocessing.image import ImageDataGenerator
 
 # 初始化 MTCNN
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -109,14 +109,16 @@ def predict_model(models, img):
     predictions = []
     for name, model in models.items():
         input_data = preprocess_image(img, name)
-        prediction = model.predict(np.expand_dims(input_data, axis=0), verbose=0)
-        predictions.append(prediction[0][0])
+        # 確保維度正確 (1, 高, 寬, 通道數)
+        input_data = np.expand_dims(input_data, axis=0)  # 增加 batch size 維度
+        prediction = model.predict(input_data, verbose=0)
+        predictions.append(prediction[0][0])  # 取得模型預測結果
     return predictions
 
 # 集成預測（簡單平均）
 def stacking_predict(models, img):
     preds = predict_model(models, img)
-    avg = np.mean(preds)
+    avg = np.mean(preds)  # 取平均值作為最終預測結果
     return "Deepfake" if avg > 0.5 else "Real", avg
 
 # 顯示預測結果
@@ -192,4 +194,4 @@ with tab2:
 
         cap.release()
 if not shown:
-    st.warning("⚠️ 沒有偵測到人臉，無法進行影片分析")
+    st.warning("未能處理影片中的任何幀，請確認影片格式及內容。")
