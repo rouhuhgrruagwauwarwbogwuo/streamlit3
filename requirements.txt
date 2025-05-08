@@ -1,5 +1,6 @@
 streamlit
 tensorflow
-opencv-python-headless
+opencv-python
+retina-face
+gdown
 Pillow
-matplotlib
