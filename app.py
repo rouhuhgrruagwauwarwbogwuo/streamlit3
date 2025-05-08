@@ -12,7 +12,6 @@ from tensorflow.keras.applications.efficientnet import preprocess_input as prepr
 from tensorflow.keras.applications.xception import preprocess_input as preprocess_xception
 import matplotlib.pyplot as plt
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from mtcnn import MTCNN  # MTCNN 庫
 
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖像偵測器")
@@ -34,15 +33,14 @@ def load_models():
         'Xception': xception_classifier
     }
 
-# 使用 MTCNN 提取人臉
-def extract_face_mtcnn(pil_img):
-    detector = MTCNN()
-    img_np = np.array(pil_img)
-    faces = detector.detect_faces(img_np)
-    if faces:
-        # 取第一個偵測到的臉部
-        x, y, w, h = faces[0]['box']
-        face = img_np[y:y+h, x:x+w]
+# 使用 OpenCV 提取人臉
+def extract_face_opencv(pil_img):
+    gray = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2GRAY)
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+    if len(faces) > 0:
+        x, y, w, h = faces[0]
+        face = np.array(pil_img)[y:y+h, x:x+w]
         return Image.fromarray(face)
     return None
 
@@ -65,12 +63,6 @@ def apply_clahe_sharpen(img):
     blurred = cv2.GaussianBlur(img_clahe, (0, 0), 3)
     sharpened = cv2.addWeighted(img_clahe, 1.5, blurred, -0.5, 0)
     return Image.fromarray(sharpened)
-
-# 顏色空間轉換（從 RGB 到 YCbCr）
-def rgb_to_ycbcr(img):
-    img_np = np.array(img)
-    ycbcr = cv2.cvtColor(img_np, cv2.COLOR_RGB2YCrCb)
-    return Image.fromarray(ycbcr)
 
 # 預處理圖像
 def preprocess_image(img, model_name):
@@ -100,16 +92,28 @@ def predict_model(models, img):
         predictions.append(prediction[0][0])
     return predictions
 
-# 集成預測
-def stacking_predict(models, img, threshold=0.5):  # 將閥值設為 0.5
+# 集成預測，對每個模型設定不同的閥值
+def stacking_predict(models, img, thresholds=None):
     preds = predict_model(models, img)
-    avg = np.mean(preds)
-    label = "Deepfake" if avg > threshold else "Real"
-    return label, avg
+    
+    if thresholds is None:
+        thresholds = {'ResNet50': 0.6, 'EfficientNet': 0.6, 'Xception': 0.6}  # Default thresholds
+
+    avg_confidence = 0
+    label_votes = 0
+
+    for model_name, pred in zip(models.keys(), preds):
+        if pred > thresholds[model_name]:
+            label_votes += 1
+        avg_confidence += pred
+
+    avg_confidence /= len(models)
+    label = "Deepfake" if label_votes > len(models) / 2 else "Real"
+    return label, avg_confidence
 
 # 顯示預測結果
-def show_prediction(img, models, threshold=0.5):
-    label, confidence = stacking_predict(models, img, threshold)
+def show_prediction(img, models, thresholds=None):
+    label, confidence = stacking_predict(models, img, thresholds)
     st.image(img, caption="輸入圖像", use_container_width=True)
     st.subheader(f"預測結果：**{label}**")
     st.markdown(f"信心分數：**{confidence:.2f}**")
@@ -132,13 +136,13 @@ with tab1:
         pil_img = Image.open(uploaded_image).convert("RGB")
         st.image(pil_img, caption="原始圖像", use_container_width=True)
 
-        face_img = extract_face_mtcnn(pil_img)
+        face_img = extract_face_opencv(pil_img)
         if face_img:
             st.image(face_img, caption="偵測到人臉", width=300)
-            show_prediction(face_img, models, threshold=0.6)
+            show_prediction(face_img, models, thresholds={'ResNet50': 0.6, 'EfficientNet': 0.6, 'Xception': 0.6})
         else:
             st.info("⚠️ 沒偵測到人臉，使用整張圖像預測")
-            show_prediction(pil_img, models, threshold=0.6)
+            show_prediction(pil_img, models, thresholds={'ResNet50': 0.6, 'EfficientNet': 0.6, 'Xception': 0.6})
 
 with tab2:
     st.header("影片偵測（處理前幾幀）")
@@ -164,9 +168,9 @@ with tab2:
             if frame_idx % 3 == 0:
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_frame = Image.fromarray(rgb)
-                face_img = extract_face_mtcnn(pil_frame)
+                face_img = extract_face_opencv(pil_frame)
                 if face_img:
-                    label, confidence = stacking_predict(models, face_img)
+                    label, confidence = stacking_predict(models, face_img, thresholds={'ResNet50': 0.6, 'EfficientNet': 0.6, 'Xception': 0.6})
                     frame_confidences.append((label, confidence))
                     if not shown:
                         st.image(pil_frame, caption=f"幀 {frame_idx+1}")
