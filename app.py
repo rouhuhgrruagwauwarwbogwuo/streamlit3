@@ -5,6 +5,7 @@ import requests
 from PIL import Image
 import cv2
 import tempfile
+import pywt
 from keras.applications import ResNet50, EfficientNetB0, Xception
 from keras.models import Sequential
 from keras.layers import Dense
@@ -13,6 +14,7 @@ from keras.applications.efficientnet import preprocess_input as preprocess_effic
 from keras.applications.xception import preprocess_input as preprocess_xception
 from mtcnn import MTCNN
 import matplotlib.pyplot as plt
+from scipy.fftpack import fft, ifft
 
 # 初始化 MTCNN
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -64,8 +66,31 @@ def apply_clahe_sharpen(img):
 
 # 高頻濾波處理
 def high_pass_filter(img):
-    kernel = np.array([[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]])  # Sobel kernel
-    return cv2.filter2D(img, -1, kernel)
+    img_gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    rows, cols = img_gray.shape
+    dft = cv2.dft(np.float32(img_gray), flags=cv2.DFT_COMPLEX_OUTPUT)
+    dft_shift = np.fft.fftshift(dft)
+    
+    # 設定高頻濾波器
+    center = (rows // 2, cols // 2)
+    radius = 30
+    mask = np.ones((rows, cols, 2), np.uint8)
+    cv2.circle(mask, center, radius, (0, 0, 0), -1)
+    
+    # 應用濾波
+    fshift = dft_shift * mask
+    f_ishift = np.fft.ifftshift(fshift)
+    img_back = cv2.idft(f_ishift)
+    img_back = cv2.magnitude(img_back[:, :, 0], img_back[:, :, 1])
+    return np.uint8(np.abs(img_back))
+
+# 小波變換（Wavelet Transform）
+def wavelet_transform(img):
+    img_np = np.array(img)
+    coeffs = pywt.dwt2(img_np, 'bior1.3')  # 這是常用的小波變換
+    LL, (LH, HL, HH) = coeffs
+    # 返回小波變換的四個部分
+    return LL, LH, HL, HH
 
 # 預處理圖像
 def preprocess_image(img, model_name):
@@ -129,6 +154,11 @@ with tab1:
         filtered_img = high_pass_filter(np.array(pil_img))
         st.image(filtered_img, caption="高頻濾波後的圖像", use_container_width=True)
 
+        # 小波變換
+        LL, LH, HL, HH = wavelet_transform(pil_img)
+        st.image(LL, caption="小波變換 LL 部分", use_container_width=True)
+        st.image(HH, caption="小波變換 HH 部分", use_container_width=True)
+
         face_img = extract_face(pil_img)
         if face_img:
             st.image(face_img, caption="偵測到人臉", width=300)
@@ -165,6 +195,10 @@ with tab2:
                 # 高頻濾波處理
                 filtered_frame = high_pass_filter(rgb)
                 st.image(filtered_frame, caption=f"第 {frame_idx} 幀 高頻濾波後", width=300)
+
+                # 小波變換
+                LL, LH, HL, HH = wavelet_transform(pil_frame)
+                st.image(LL, caption=f"第 {frame_idx} 幀 小波變換 LL 部分", width=300)
 
                 face_img = extract_face(pil_frame)
                 if face_img:
