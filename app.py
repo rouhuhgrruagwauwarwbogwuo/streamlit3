@@ -11,14 +11,13 @@ from tensorflow.keras.layers import Dense
 from tensorflow.keras.applications.resnet50 import preprocess_input as preprocess_resnet
 from tensorflow.keras.applications.efficientnet import preprocess_input as preprocess_efficientnet
 from tensorflow.keras.applications.xception import preprocess_input as preprocess_xception
-from mtcnn import MTCNN
+from retinaface import RetinaFace  # 使用 RetinaFace 代替 MTCNN
 import matplotlib.pyplot as plt
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
-# 初始化 MTCNN
+# 初始化 RetinaFace
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖像偵測器")
-detector = MTCNN()
 
 # 載入模型
 @st.cache_resource
@@ -37,11 +36,11 @@ def load_models():
         'Xception': xception_classifier
     }
 
-# 提取人臉
+# 使用 RetinaFace 提取人臉
 @st.cache_data(show_spinner=False)
 def extract_face(pil_img):
     img_array = np.array(pil_img)
-    faces = detector.detect_faces(img_array)
+    faces = RetinaFace.detect_faces(img_array)
     if faces:
         x, y, w, h = faces[0]['box']
         face = img_array[y:y+h, x:x+w]
