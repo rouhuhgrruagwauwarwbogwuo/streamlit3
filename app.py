@@ -92,28 +92,16 @@ def predict_model(models, img):
         predictions.append(prediction[0][0])
     return predictions
 
-# 集成預測，對每個模型設定不同的閥值
-def stacking_predict(models, img, thresholds=None):
+# 集成預測
+def stacking_predict(models, img, threshold=0.55):  # 設定閥值為0.55
     preds = predict_model(models, img)
-    
-    if thresholds is None:
-        thresholds = {'ResNet50': 0.6, 'EfficientNet': 0.6, 'Xception': 0.6}  # Default thresholds
-
-    avg_confidence = 0
-    label_votes = 0
-
-    for model_name, pred in zip(models.keys(), preds):
-        if pred > thresholds[model_name]:
-            label_votes += 1
-        avg_confidence += pred
-
-    avg_confidence /= len(models)
-    label = "Deepfake" if label_votes > len(models) / 2 else "Real"
-    return label, avg_confidence
+    avg = np.mean(preds)
+    label = "Deepfake" if avg > threshold else "Real"
+    return label, avg
 
 # 顯示預測結果
-def show_prediction(img, models, thresholds=None):
-    label, confidence = stacking_predict(models, img, thresholds)
+def show_prediction(img, models, threshold=0.55):  # 設定閥值為0.55
+    label, confidence = stacking_predict(models, img, threshold)
     st.image(img, caption="輸入圖像", use_container_width=True)
     st.subheader(f"預測結果：**{label}**")
     st.markdown(f"信心分數：**{confidence:.2f}**")
@@ -139,10 +127,10 @@ with tab1:
         face_img = extract_face_opencv(pil_img)
         if face_img:
             st.image(face_img, caption="偵測到人臉", width=300)
-            show_prediction(face_img, models, thresholds={'ResNet50': 0.6, 'EfficientNet': 0.6, 'Xception': 0.6})
+            show_prediction(face_img, models, threshold=0.55)
         else:
             st.info("⚠️ 沒偵測到人臉，使用整張圖像預測")
-            show_prediction(pil_img, models, thresholds={'ResNet50': 0.6, 'EfficientNet': 0.6, 'Xception': 0.6})
+            show_prediction(pil_img, models, threshold=0.55)
 
 with tab2:
     st.header("影片偵測（處理前幾幀）")
@@ -170,7 +158,7 @@ with tab2:
                 pil_frame = Image.fromarray(rgb)
                 face_img = extract_face_opencv(pil_frame)
                 if face_img:
-                    label, confidence = stacking_predict(models, face_img, thresholds={'ResNet50': 0.6, 'EfficientNet': 0.6, 'Xception': 0.6})
+                    label, confidence = stacking_predict(models, face_img)
                     frame_confidences.append((label, confidence))
                     if not shown:
                         st.image(pil_frame, caption=f"幀 {frame_idx+1}")
