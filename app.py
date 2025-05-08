@@ -13,8 +13,9 @@ from tensorflow.keras.applications.efficientnet import preprocess_input as prepr
 from tensorflow.keras.applications.xception import preprocess_input as preprocess_xception
 from mtcnn import MTCNN
 import matplotlib.pyplot as plt
+from tensorflow.keras.preprocessing.image import ImageDataGenerator  # 可選，如未用到可註解
 
-# 初始化 MTCNN
+# 初始化
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖像偵測器")
 detector = MTCNN()
@@ -47,7 +48,7 @@ def extract_face(pil_img):
         return Image.fromarray(face)
     return None
 
-# 高通濾波 (強化邊緣)
+# 高通濾波
 def high_pass_filter(img):
     img_np = np.array(img)
     kernel = np.array([[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]])
@@ -71,7 +72,6 @@ def apply_clahe_sharpen(img):
 def preprocess_image(img, model_name):
     img = apply_clahe_sharpen(img)
     img = high_pass_filter(img)
-
     if model_name == 'Xception':
         img = img.resize((299, 299))
         img_array = np.array(img).astype(np.float32)
@@ -95,7 +95,7 @@ def predict_model(models, img):
         predictions.append(prediction[0][0])
     return predictions
 
-# 集成預測（簡單平均）
+# 集成預測
 def stacking_predict(models, img):
     preds = predict_model(models, img)
     avg = np.mean(preds)
@@ -107,7 +107,6 @@ def show_prediction(img, models):
     st.image(img, caption="輸入圖像", use_container_width=True)
     st.subheader(f"預測結果：**{label}**")
     st.markdown(f"信心分數：**{confidence:.2f}**")
-
     fig, ax = plt.subplots(figsize=(6, 1))
     ax.barh([0], confidence, color='green' if label == "Real" else 'red')
     ax.set_xlim(0, 1)
@@ -115,7 +114,7 @@ def show_prediction(img, models):
     ax.set_xlabel('信心分數')
     st.pyplot(fig)
 
-# UI Tab
+# 主程式開始
 models = load_models()
 tab1, tab2 = st.tabs(["🖼️ 圖像偵測", "🎥 影片偵測"])
 
@@ -125,7 +124,6 @@ with tab1:
     if uploaded_image:
         pil_img = Image.open(uploaded_image).convert("RGB")
         st.image(pil_img, caption="原始圖像", use_container_width=True)
-
         face_img = extract_face(pil_img)
         if face_img:
             st.image(face_img, caption="偵測到人臉", width=300)
@@ -137,6 +135,7 @@ with tab1:
 with tab2:
     st.header("影片偵測（處理前幾幀）")
     uploaded_video = st.file_uploader("選擇一段影片", type=["mp4", "mov", "avi"])
+    shown = False  # 🔧 修正 NameError
     if uploaded_video:
         st.video(uploaded_video)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
@@ -146,7 +145,6 @@ with tab2:
         st.info("🎬 正在分析影片...（取前 10 幀）")
         cap = cv2.VideoCapture(video_path)
         frame_idx = 0
-        shown = False
         max_frames = 10
         frame_confidences = []
 
@@ -154,7 +152,6 @@ with tab2:
             ret, frame = cap.read()
             if not ret:
                 break
-
             if frame_idx % 3 == 0:
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_frame = Image.fromarray(rgb)
@@ -170,7 +167,7 @@ with tab2:
                         st.markdown(f"影片總體信心分數：**{avg_confidence:.2f}**")
                         break
             frame_idx += 1
-
         cap.release()
-if not shown:
-    st.warning("未能處理影片中的任何幀，請確認影片格式及內容。")
+
+    if not shown:
+        st.warning("未能處理影片中的任何幀，請確認影片格式及內容。")
