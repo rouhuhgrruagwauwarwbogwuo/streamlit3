@@ -7,6 +7,8 @@ from PIL import Image
 from mtcnn import MTCNN
 import requests
 import os
+import cv2
+import tempfile
 
 # 🔽 下載模型（如果模型未下載過）
 def download_model():
@@ -18,9 +20,9 @@ def download_model():
         if response.status_code == 200:
             with open(model_filename, "wb") as f:
                 f.write(response.content)
-            print("模型檔案已成功下載！")
+            print("✅ 模型檔案已成功下載")
         else:
-            print(f"下載失敗，狀態碼：{response.status_code}")
+            print(f"❌ 模型下載失敗，狀態碼：{response.status_code}")
             return None
     return model_filename
 
@@ -32,9 +34,9 @@ try:
         Dense(1, activation='sigmoid')  
     ])
     resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-    print("ResNet50 模型已成功載入")
+    print("✅ ResNet50 模型已成功載入")
 except Exception as e:
-    print(f"載入 ResNet50 模型時發生錯誤：{e}")
+    print(f"❌ 載入 ResNet50 模型錯誤：{e}")
     resnet_classifier = None
 
 # 🔹 初始化 MTCNN 人臉檢測器
@@ -44,7 +46,6 @@ detector = MTCNN()
 def extract_face(pil_img):
     img_array = np.array(pil_img)
     faces = detector.detect_faces(img_array)
-
     if len(faces) > 0:
         x, y, width, height = faces[0]['box']
         face = img_array[y:y+height, x:x+width]
@@ -53,7 +54,7 @@ def extract_face(pil_img):
     else:
         return None
 
-# 🔹 中心裁切函數
+# 🔹 中心裁切
 def center_crop(img, target_size=(224, 224)):
     width, height = img.size
     new_width, new_height = target_size
@@ -67,39 +68,33 @@ def center_crop(img, target_size=(224, 224)):
 def preprocess_for_resnet(img):
     img = img.resize((256, 256), Image.Resampling.LANCZOS)
     img = center_crop(img, (224, 224))
-    img_array = np.array(img)
-    img_array = img_array.astype(np.float32) / 255.0
-
-    # 擴展維度以符合模型輸入要求： (batch_size, height, width, channels)
+    img_array = np.array(img).astype(np.float32) / 255.0
     resnet_input = np.expand_dims(img_array, axis=0)
-
     return resnet_input
 
-# 🔹 ResNet50 模型預測
+# 🔹 預測
 def predict_with_resnet(img):
     resnet_input = preprocess_for_resnet(img)
-    resnet_prediction = resnet_classifier.predict(resnet_input)[0][0]
-    resnet_label = "Deepfake" if resnet_prediction > 0.5 else "Real"
-    return resnet_label, resnet_prediction
+    prediction = resnet_classifier.predict(resnet_input)[0][0]
+    label = "Deepfake" if prediction > 0.5 else "Real"
+    return label, prediction
 
 # 🔹 顯示預測結果
 def show_prediction(img):
-    resnet_label, resnet_confidence = predict_with_resnet(img)
+    label, confidence = predict_with_resnet(img)
+    st.image(img, caption="輸入圖片", use_container_width=True)
+    st.subheader(f"🔍 預測結果：**{label}**（信心值：{confidence:.2%}）")
 
-    st.image(img, caption="原始圖片", use_container_width=True)
-    st.subheader(f"ResNet50: {resnet_label} ({resnet_confidence:.2%})")
-
-# 🔹 Streamlit 主頁面
+# 🔹 Streamlit UI
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
-st.title("🧠 Deepfake 圖片偵測器")
+st.title("🧠 Deepfake 圖片與影片偵測器")
 
-# 分頁
 tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
 
-# ---------- 圖片 ---------- 
+# ---------- 圖片 ----------
 with tab1:
     st.header("圖片偵測")
-    uploaded_image = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"])
+    uploaded_image = st.file_uploader("請上傳圖片（jpg/png）", type=["jpg", "jpeg", "png"])
     if uploaded_image:
         pil_img = Image.open(uploaded_image).convert("RGB")
         st.image(pil_img, caption="原始圖片", use_container_width=True)
@@ -109,13 +104,13 @@ with tab1:
             st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
             show_prediction(face_img)
         else:
-            st.write("未偵測到人臉，使用整體圖片進行預測")
+            st.info("⚠️ 未偵測到人臉，使用整張圖片進行分析")
             show_prediction(pil_img)
 
-# ---------- 影片 ---------- 
+# ---------- 影片 ----------
 with tab2:
-    st.header("影片偵測（僅分析前幾幀）")
-    uploaded_video = st.file_uploader("上傳影片", type=["mp4", "mov", "avi"])
+    st.header("影片偵測（每 10 幀分析一次）")
+    uploaded_video = st.file_uploader("請上傳影片（mp4/mov/avi）", type=["mp4", "mov", "avi"])
     if uploaded_video:
         st.video(uploaded_video)
 
@@ -123,20 +118,28 @@ with tab2:
             tmp.write(uploaded_video.read())
             video_path = tmp.name
 
-        st.info("🎬 擷取影片幀與進行預測中...")
-        # 使用 PIL 提取影片幀
-        video = Image.open(video_path)
+        st.info("🎬 擷取影片中... 請稍候")
+
+        cap = cv2.VideoCapture(video_path)
         frame_idx = 0
 
         while True:
-            try:
-                frame_pil = video.seek(frame_idx)
-                if frame_idx % 10 == 0:
-                    face_img = extract_face(frame_pil)
-                    if face_img:
-                        st.image(face_img, caption="偵測到的人臉", use_container_width=False, width=300)
-                        show_prediction(face_img)
-                        break
-                frame_idx += 1
-            except EOFError:
+            ret, frame = cap.read()
+            if not ret:
                 break
+
+            if frame_idx % 10 == 0:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame_pil = Image.fromarray(frame_rgb)
+
+                face_img = extract_face(frame_pil)
+                if face_img:
+                    st.image(face_img, caption=f"第 {frame_idx} 幀偵測到人臉", use_container_width=False, width=300)
+                    show_prediction(face_img)
+                else:
+                    st.image(frame_pil, caption=f"第 {frame_idx} 幀（未偵測到人臉）", use_container_width=True)
+                    show_prediction(frame_pil)
+
+            frame_idx += 1
+
+        cap.release()
