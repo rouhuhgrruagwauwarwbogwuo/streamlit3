@@ -8,11 +8,12 @@ import tempfile
 from keras.applications import ResNet50, EfficientNetB0, Xception
 from keras.models import Sequential
 from keras.layers import Dense
-from keras.preprocessing.image import img_to_array
+from keras.applications.resnet50 import preprocess_input as preprocess_resnet
+from keras.applications.efficientnet import preprocess_input as preprocess_efficientnet
+from keras.applications.xception import preprocess_input as preprocess_xception
 from mtcnn import MTCNN
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-import xgboost as xgb
+from sklearn.model_selection import train_test_split
 
 # ⬇️ 下載模型（如果還沒下載）
 def download_model():
@@ -29,18 +30,26 @@ def download_model():
             return None
     return model_filename
 
-# ✅ 載入模型
+# ✅ 載入 ResNet50、EfficientNet 和 Xception 模型
 def load_models():
-    resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
-    efficientnet_model = EfficientNetB0(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
-    xception_model = Xception(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
+    try:
+        resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
+        efficientnet_model = EfficientNetB0(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
+        xception_model = Xception(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
 
-    base_models = {
-        "ResNet50": resnet_model,
-        "EfficientNet": efficientnet_model,
-        "Xception": xception_model
-    }
-    return base_models
+        # 自定義分類器
+        resnet_classifier = Sequential([resnet_model, Dense(1, activation='sigmoid')])
+        efficientnet_classifier = Sequential([efficientnet_model, Dense(1, activation='sigmoid')])
+        xception_classifier = Sequential([xception_model, Dense(1, activation='sigmoid')])
+
+        return {
+            'ResNet50': resnet_classifier,
+            'EfficientNet': efficientnet_classifier,
+            'Xception': xception_classifier
+        }
+    except Exception as e:
+        print(f"載入模型錯誤：{e}")
+        return None
 
 # ✅ MTCNN 初始化
 detector = MTCNN()
@@ -56,60 +65,42 @@ def extract_face(pil_img):
     return None
 
 # ✅ 圖片預處理
-def preprocess_image(pil_img, model_name):
-    img = pil_img.resize((224, 224))
-    img_array = np.array(img) / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
-
-    if model_name == "ResNet50":
-        return resnet_model.preprocess_input(img_array)
-    elif model_name == "EfficientNet":
-        return efficientnet_model.preprocess_input(img_array)
-    elif model_name == "Xception":
-        return xception_model.preprocess_input(img_array)
+def preprocess_image(img, model_name):
+    img_array = np.array(img)
+    img_array = img_array.astype(np.float32) / 255.0  # 處理 RGB 圖像
+    
+    if model_name == 'ResNet50':
+        return preprocess_resnet(img_array)
+    elif model_name == 'EfficientNet':
+        return preprocess_efficientnet(img_array)
+    elif model_name == 'Xception':
+        return preprocess_xception(img_array)
     return img_array
 
 # ✅ 預測
 def predict_model(models, img):
     predictions = []
     for model_name, model in models.items():
-        processed_img = preprocess_image(img, model_name)
-        pred = model.predict(processed_img)
-        predictions.append(pred)
+        preprocessed_img = preprocess_image(img, model_name)
+        prediction = model.predict(np.expand_dims(preprocessed_img, axis=0))[0][0]
+        predictions.append(prediction)
     return predictions
 
-# ✅ Stacking: 輸出模型預測作為特徵，並使用 Logistic Regression 作為最終分類器
+# ✅ Stacking 預測（集成學習）
 def stacking_predict(models, img):
     predictions = predict_model(models, img)
-    stacked_features = np.hstack(predictions)  # 合併各模型的預測結果
-    stacked_features = stacked_features.reshape(1, -1)
-    classifier = LogisticRegression()
-    classifier.fit(stacked_features, [0])  # 用於擬合訓練數據，這裡僅為示範
-    return classifier.predict(stacked_features)
-
-# ✅ Boosting: 使用 XGBoost 作為提升模型
-def boosting_predict(models, img):
-    predictions = predict_model(models, img)
-    stacked_features = np.hstack(predictions)
-    stacked_features = stacked_features.reshape(1, -1)
-    xg_model = xgb.XGBClassifier()
-    xg_model.fit(stacked_features, [0])  # 擬合模型
-    return xg_model.predict(stacked_features)
-
-# ✅ Bagging: 使用 RandomForest 來進行 Bagging
-def bagging_predict(models, img):
-    predictions = predict_model(models, img)
-    stacked_features = np.hstack(predictions)
-    stacked_features = stacked_features.reshape(1, -1)
-    rf_model = RandomForestClassifier()
-    rf_model.fit(stacked_features, [0])  # 擬合模型
-    return rf_model.predict(stacked_features)
+    # 使用簡單的邏輯回歸來融合預測結果
+    stacked_predictions = np.array(predictions).reshape(-1, 1)
+    logistic_model = LogisticRegression()
+    logistic_model.fit(stacked_predictions, [1 if p > 0.5 else 0 for p in predictions])
+    final_prediction = logistic_model.predict(stacked_predictions)[0]
+    return "Deepfake" if final_prediction == 1 else "Real"
 
 # ✅ 顯示預測
 def show_prediction(img, models):
     label = stacking_predict(models, img)
     st.image(img, caption="輸入圖片", use_container_width=True)
-    st.subheader(f"預測結果：**{label}**")
+    st.subheader(f"集成模型判斷：**{label}**")
 
 # ✅ Streamlit UI
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -128,10 +119,12 @@ with tab1:
         face_img = extract_face(pil_img)
         if face_img:
             st.image(face_img, caption="偵測到人臉", width=300)
-            show_prediction(face_img, load_models())
+            models = load_models()
+            show_prediction(face_img, models)
         else:
             st.info("⚠️ 未偵測到人臉，將使用整張圖片進行預測")
-            show_prediction(pil_img, load_models())
+            models = load_models()
+            show_prediction(pil_img, models)
 
 # ✅ 影片偵測（僅擷取前幾幀）
 with tab2:
@@ -161,7 +154,8 @@ with tab2:
                 face_img = extract_face(pil_frame)
                 if face_img:
                     st.image(face_img, caption=f"第 {frame_idx} 幀偵測到人臉", width=300)
-                    show_prediction(face_img, load_models())
+                    models = load_models()
+                    show_prediction(face_img, models)
                     shown = True
             frame_idx += 1
 
