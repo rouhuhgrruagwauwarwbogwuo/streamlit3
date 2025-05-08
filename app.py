@@ -110,12 +110,16 @@ def stacking_predict(models, img):
     labels = np.array(labels).reshape(-1, 1)  # 確保 labels 是二維陣列（n_samples, 1）
     print("Reshaped labels:", labels)  # 調試用
 
-    # 使用邏輯回歸進行預測融合
-    logistic_model = LogisticRegression()
-    
+    # 這邊的 stacked_predictions 是 (1, n_models)
     try:
-        logistic_model.fit(stacked_predictions, labels)
-        final_prediction = logistic_model.predict(stacked_predictions)[0]
+        # 修改這一行：將 stacked_predictions 和 labels 分割成訓練與測試資料
+        X_train, X_test, y_train, y_test = train_test_split(stacked_predictions, labels, test_size=0.2, random_state=42)
+        
+        logistic_model = LogisticRegression()
+        logistic_model.fit(X_train, y_train.ravel())  # 使用 ravel() 來扁平化 y_train
+        
+        # 測試集上進行預測
+        final_prediction = logistic_model.predict(X_test)[0]
         print("Final prediction:", final_prediction)  # 調試用
         return "Deepfake" if final_prediction == 1 else "Real"
     except ValueError as e:
