@@ -7,3 +7,4 @@ Pillow
 numpy
 requests
 scikit-learn
+xgboost
