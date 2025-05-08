@@ -1,8 +1,7 @@
-pywt
-keras
+streamlit
 tensorflow
+keras
+opencv-python
 mtcnn
-opencv-python-headless
+pillow
 matplotlib
-
-
