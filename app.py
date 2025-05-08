@@ -33,7 +33,6 @@ def download_model():
 # ✅ 載入 ResNet50、EfficientNet 和 Xception 模型
 def load_models():
     try:
-        # 加載預訓練模型
         resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
         efficientnet_model = EfficientNetB0(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
         xception_model = Xception(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
@@ -50,7 +49,7 @@ def load_models():
         }
     except Exception as e:
         print(f"載入模型錯誤：{e}")
-        return {}
+        return None
 
 # ✅ MTCNN 初始化
 detector = MTCNN()
@@ -100,18 +99,24 @@ def stacking_predict(models, img):
     predictions = predict_model(models, img)
     
     # 確保 predictions 是一維陣列，並轉換為 2D 陣列（每個模型一行）
-    stacked_predictions = np.array(predictions).reshape(-1, 1)
+    stacked_predictions = np.array(predictions).reshape(1, -1)  # (1, n_models)
 
     # 設定每個預測結果的標籤（1表示Deepfake，0表示Real）
     labels = [1 if p > 0.5 else 0 for p in predictions]
     
+    # 這邊的 labels 是一維陣列 (n_samples,)
+    labels = np.array(labels).reshape(-1, 1)  # 確保 labels 是二維陣列（n_samples, 1）
+
     # 使用邏輯回歸進行預測融合
     logistic_model = LogisticRegression()
-    logistic_model.fit(stacked_predictions, labels)
-
-    # 輸出最終預測
-    final_prediction = logistic_model.predict(stacked_predictions)[0]
-    return "Deepfake" if final_prediction == 1 else "Real"
+    
+    try:
+        logistic_model.fit(stacked_predictions, labels)
+        final_prediction = logistic_model.predict(stacked_predictions)[0]
+        return "Deepfake" if final_prediction == 1 else "Real"
+    except ValueError as e:
+        print(f"訓練邏輯回歸模型出錯：{e}")
+        return "模型訓練失敗"
 
 # ✅ 顯示預測
 def show_prediction(img, models):
@@ -137,17 +142,11 @@ with tab1:
         if face_img:
             st.image(face_img, caption="偵測到人臉", width=300)
             models = load_models()
-            if models:  # 確保模型加載成功
-                show_prediction(face_img, models)
-            else:
-                st.error("模型加載失敗，請檢查網絡連接或重新啟動應用。")
+            show_prediction(face_img, models)
         else:
             st.info("⚠️ 未偵測到人臉，將使用整張圖片進行預測")
             models = load_models()
-            if models:  # 確保模型加載成功
-                show_prediction(pil_img, models)
-            else:
-                st.error("模型加載失敗，請檢查網絡連接或重新啟動應用。")
+            show_prediction(pil_img, models)
 
 # ✅ 影片偵測（僅擷取前幾幀）
 with tab2:
@@ -178,11 +177,8 @@ with tab2:
                 if face_img:
                     st.image(face_img, caption=f"第 {frame_idx} 幀偵測到人臉", width=300)
                     models = load_models()
-                    if models:
-                        show_prediction(face_img, models)
-                        shown = True
-                    else:
-                        st.error("模型加載失敗，請檢查網絡連接或重新啟動應用。")
+                    show_prediction(face_img, models)
+                    shown = True
             frame_idx += 1
 
         cap.release()
