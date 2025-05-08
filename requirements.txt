@@ -1,13 +1,8 @@
-streamlit
-tensorflow
+pywt==1.1.1
 keras
+tensorflow
 mtcnn
 opencv-python-headless
-Pillow
-numpy
-requests
-scikit-learn
-xgboost
 matplotlib
-pywt==1.1.1
+
 
