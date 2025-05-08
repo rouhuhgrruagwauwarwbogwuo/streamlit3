@@ -4,3 +4,4 @@ retina-face
 gdown
 Pillow
 opencv-python-headless
+mtcnn
