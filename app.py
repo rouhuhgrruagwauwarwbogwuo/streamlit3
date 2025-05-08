@@ -5,10 +5,10 @@ import requests
 from PIL import Image
 import cv2
 import tempfile
-from keras.applications import ResNet50, EfficientNetB0, Xception
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.applications import ResNet50, EfficientNetB0, Xception
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.preprocessing.image import ImageDataGenerator  # 更新這裡
 from mtcnn import MTCNN
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras import layers
