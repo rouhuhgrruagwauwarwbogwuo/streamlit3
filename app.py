@@ -69,6 +69,8 @@ def preprocess_image(img, model_name):
     img_resized = img.resize((224, 224))  # 對所有模型進行 224x224 重設
     img_array = np.array(img_resized).astype(np.float32) / 255.0  # 標準化 RGB 圖像
 
+    print(f"處理前圖像形狀: {img_array.shape}")  # 調試輸出
+
     if model_name == 'ResNet50':
         return preprocess_resnet(img_array)
     elif model_name == 'EfficientNet':
@@ -76,6 +78,7 @@ def preprocess_image(img, model_name):
     elif model_name == 'Xception':
         img_resized = img.resize((299, 299))  # Xception 要求 299x299 大小
         img_array = np.array(img_resized).astype(np.float32) / 255.0
+        print(f"處理後圖像形狀 (Xception): {img_array.shape}")  # 調試輸出
         return preprocess_xception(img_array)
     return img_array
 
@@ -84,6 +87,7 @@ def predict_model(models, img):
     predictions = []
     for model_name, model in models.items():
         preprocessed_img = preprocess_image(img, model_name)
+        print(f"預處理後圖像形狀: {preprocessed_img.shape}")  # 調試輸出
         prediction = model.predict(np.expand_dims(preprocessed_img, axis=0))  # 增加批次維度
         predictions.append(prediction[0][0])  # 扁平化預測結果
     return predictions
