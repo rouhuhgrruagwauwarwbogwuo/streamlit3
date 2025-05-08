@@ -101,7 +101,7 @@ def predict_model(models, img):
     return predictions
 
 # 集成預測
-def stacking_predict(models, img, threshold=0.5):
+def stacking_predict(models, img, threshold=0.5):  # 將閥值設為 0.5
     preds = predict_model(models, img)
     avg = np.mean(preds)
     label = "Deepfake" if avg > threshold else "Real"
