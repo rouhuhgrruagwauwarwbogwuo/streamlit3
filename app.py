@@ -33,6 +33,7 @@ def download_model():
 # ✅ 載入 ResNet50、EfficientNet 和 Xception 模型
 def load_models():
     try:
+        # 加載預訓練模型
         resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
         efficientnet_model = EfficientNetB0(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
         xception_model = Xception(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
@@ -49,7 +50,7 @@ def load_models():
         }
     except Exception as e:
         print(f"載入模型錯誤：{e}")
-        return None
+        return {}
 
 # ✅ MTCNN 初始化
 detector = MTCNN()
@@ -93,6 +94,9 @@ def predict_model(models, img):
 
 # ✅ Stacking 預測（集成學習）
 def stacking_predict(models, img):
+    if not models:  # 如果模型字典是空的，返回錯誤信息
+        return "模型加載失敗"
+    
     predictions = predict_model(models, img)
     
     # 確保 predictions 是一維陣列，並轉換為 2D 陣列（每個模型一行）
@@ -133,11 +137,17 @@ with tab1:
         if face_img:
             st.image(face_img, caption="偵測到人臉", width=300)
             models = load_models()
-            show_prediction(face_img, models)
+            if models:  # 確保模型加載成功
+                show_prediction(face_img, models)
+            else:
+                st.error("模型加載失敗，請檢查網絡連接或重新啟動應用。")
         else:
             st.info("⚠️ 未偵測到人臉，將使用整張圖片進行預測")
             models = load_models()
-            show_prediction(pil_img, models)
+            if models:  # 確保模型加載成功
+                show_prediction(pil_img, models)
+            else:
+                st.error("模型加載失敗，請檢查網絡連接或重新啟動應用。")
 
 # ✅ 影片偵測（僅擷取前幾幀）
 with tab2:
@@ -168,8 +178,11 @@ with tab2:
                 if face_img:
                     st.image(face_img, caption=f"第 {frame_idx} 幀偵測到人臉", width=300)
                     models = load_models()
-                    show_prediction(face_img, models)
-                    shown = True
+                    if models:
+                        show_prediction(face_img, models)
+                        shown = True
+                    else:
+                        st.error("模型加載失敗，請檢查網絡連接或重新啟動應用。")
             frame_idx += 1
 
         cap.release()
