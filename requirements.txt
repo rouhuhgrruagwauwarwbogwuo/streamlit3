@@ -2,7 +2,7 @@ streamlit
 tensorflow
 keras
 mtcnn
+opencv-python
 Pillow
 numpy
 requests
-moviepy
