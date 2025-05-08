@@ -176,9 +176,9 @@ with tab2:
         st.info("🎬 正在分析影片...（取前 10 幀）")
         cap = cv2.VideoCapture(video_path)
         frame_idx = 0
-        shown = False
         max_frames = 10
         frame_confidences = []
+        shown = False  # 確保每次都初始化
 
         while cap.isOpened() and frame_idx < max_frames:
             ret, frame = cap.read()
@@ -203,5 +203,6 @@ with tab2:
 
         cap.release()
 
-if not shown:
-    st.warning("未能處理影片中的任何幀，請確認影片格式及內容。")
+        # 顯示影片分析結束後的結果
+        if not shown:
+            st.warning("未能處理影片中的任何幀，請確認影片格式及內容。")
