@@ -67,6 +67,11 @@ def extract_face(pil_img):
 # ✅ 圖片預處理
 def preprocess_image(img, model_name):
     img_array = np.array(img)
+    
+    # 調整圖像大小
+    img_resized = img.resize((224, 224))  # 所有模型都需要 224x224 大小的圖片
+    img_array = np.array(img_resized)
+
     img_array = img_array.astype(np.float32) / 255.0  # 處理 RGB 圖像
     
     if model_name == 'ResNet50':
