@@ -5,15 +5,15 @@ import requests
 from PIL import Image
 import cv2
 import tempfile
-from keras.applications import ResNet50, EfficientNetB0, Xception
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.applications.resnet50 import preprocess_input as preprocess_resnet
-from keras.applications.efficientnet import preprocess_input as preprocess_efficientnet
-from keras.applications.xception import preprocess_input as preprocess_xception
+from tensorflow.keras.applications import ResNet50, EfficientNetB0, Xception
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.applications.resnet50 import preprocess_input as preprocess_resnet
+from tensorflow.keras.applications.efficientnet import preprocess_input as preprocess_efficientnet
+from tensorflow.keras.applications.xception import preprocess_input as preprocess_xception
 from mtcnn import MTCNN
 import matplotlib.pyplot as plt
-from keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.preprocessing.image import ImageDataGenerator  # Updated import
 
 # 初始化 MTCNN
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -186,13 +186,12 @@ with tab2:
                     st.subheader(f"預測結果：**{label}**")
                     frame_confidences.append(confidence)
                     shown = True
-
+                    if len(frame_confidences) == 10:
+                        avg_confidence = np.mean(frame_confidences)
+                        st.markdown(f"影片總體信心分數：**{avg_confidence:.2f}**")
+                        break
             frame_idx += 1
 
         cap.release()
-
-        if shown:
-            avg_confidence = np.mean(frame_confidences)
-            st.markdown(f"影片總體信心分數：**{avg_confidence:.2f}**")
-        else:
-            st.warning("未能處理影片中的任何幀，請確認影片格式及內容。")
+if not shown:
+    st.warning("未能處理影片中的任何幀，請確認影片格式及內容。")
