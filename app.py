@@ -13,7 +13,7 @@ from keras.applications.efficientnet import preprocess_input as preprocess_effic
 from keras.applications.xception import preprocess_input as preprocess_xception
 from mtcnn import MTCNN
 import matplotlib.pyplot as plt
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from keras.preprocessing.image import ImageDataGenerator
 
 # 初始化 MTCNN
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -165,33 +165,32 @@ with tab2:
         st.info("🎬 正在分析影片...（取前 10 幀）")
         cap = cv2.VideoCapture(video_path)
         frame_idx = 0
-        shown = False
-        max_frames = 10
         frame_confidences = []
+        max_frames = 10
+        shown = False  # Initialize shown outside the loop
 
-        with st.spinner("處理影片中..."):
-            while cap.isOpened() and frame_idx < max_frames:
-                ret, frame = cap.read()
-                if not ret:
-                    break
+        while cap.isOpened() and frame_idx < max_frames:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-                if frame_idx % 3 == 0:
-                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    pil_frame = Image.fromarray(rgb)
-                    face_img = extract_face(pil_frame)
-                    if face_img:
-                        st.image(face_img, caption=f"第 {frame_idx} 幀人臉", width=300)
-                        label, confidence = stacking_predict(models, face_img)
-                        st.subheader(f"預測結果：**{label}**")
-                        frame_confidences.append(confidence)
-                        shown = True
-                        if len(frame_confidences) == 10:
-                            avg_confidence = np.mean(frame_confidences)
-                            st.markdown(f"影片總體信心分數：**{avg_confidence:.2f}**")
-                            break
-                frame_idx += 1
+            if frame_idx % 3 == 0:
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil_frame = Image.fromarray(rgb)
+                face_img = extract_face(pil_frame)
+                if face_img:
+                    st.image(face_img, caption=f"第 {frame_idx} 幀人臉", width=300)
+                    label, confidence = stacking_predict(models, face_img)
+                    st.subheader(f"預測結果：**{label}**")
+                    frame_confidences.append(confidence)
+                    shown = True  # Update shown when a frame is processed
+                    if len(frame_confidences) == 10:
+                        avg_confidence = np.mean(frame_confidences)
+                        st.markdown(f"影片總體信心分數：**{avg_confidence:.2f}**")
+                        break
+            frame_idx += 1
 
-            cap.release()
+        cap.release()
 
-if not shown:
-    st.warning("⚠️ 沒有偵測到人臉，無法進行影片分析")
+        if not shown:  # Check if no frames with faces were shown
+            st.warning("⚠️ 沒有偵測到人臉，無法進行影片分析")
