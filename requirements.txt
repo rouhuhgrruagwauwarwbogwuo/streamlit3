@@ -9,4 +9,5 @@ requests
 scikit-learn
 xgboost
 matplotlib
-pywt
+pywt==1.1.1
+
