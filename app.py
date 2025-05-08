@@ -8,7 +8,9 @@ import tempfile
 from keras.applications import ResNet50
 from keras.models import Sequential
 from keras.layers import Dense
+from keras.preprocessing.image import ImageDataGenerator
 from mtcnn import MTCNN
+from tensorflow.keras.optimizers import Adam
 
 # ⬇️ 下載模型（如果還沒下載）
 def download_model():
@@ -32,8 +34,15 @@ try:
         resnet_model,
         Dense(1, activation='sigmoid')
     ])
-    resnet_classifier.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-    print("ResNet50 模型已載入")
+
+    # 解凍 ResNet50 模型的最後幾層進行微調
+    for layer in resnet_model.layers[:-4]:  # 保留 ResNet50 頂層，解凍其餘部分
+        layer.trainable = False
+    for layer in resnet_model.layers[-4:]:  # 微調最後幾層
+        layer.trainable = True
+
+    resnet_classifier.compile(optimizer=Adam(learning_rate=0.0001), loss='binary_crossentropy', metrics=['accuracy'])
+    print("ResNet50 模型已載入並微調")
 except Exception as e:
     print(f"ResNet50 載入錯誤：{e}")
     resnet_classifier = None
@@ -101,6 +110,17 @@ def show_prediction(img):
     label, confidence = predict_with_resnet(img)
     st.image(img, caption="輸入圖片", use_container_width=True)
     st.subheader(f"ResNet50 判斷：**{label}**（信心度：{confidence:.2%}）")
+
+# ✅ 資料增強設置（如果需要進行訓練）
+datagen = ImageDataGenerator(
+    rotation_range=40,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    shear_range=0.2,
+    zoom_range=0.2,
+    horizontal_flip=True,
+    fill_mode='nearest'
+)
 
 # ✅ Streamlit UI
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
