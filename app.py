@@ -191,5 +191,5 @@ with tab2:
             frame_idx += 1
 
         cap.release()
-        if not shown:
-            st.warning("⚠️ 沒有偵測到
+if not shown:
+    st.warning("⚠️ 沒有偵測到人臉，無法進行影片分析")
