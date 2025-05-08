@@ -5,12 +5,13 @@ import requests
 from PIL import Image
 import cv2
 import tempfile
-from keras.applications import ResNet50
+from keras.applications import ResNet50, EfficientNetB0, Xception
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.preprocessing.image import ImageDataGenerator
 from mtcnn import MTCNN
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras import layers
 
 # ⬇️ 下載模型（如果還沒下載）
 def download_model():
@@ -27,25 +28,33 @@ def download_model():
             return None
     return model_filename
 
-# ✅ 載入 ResNet50 模型
-try:
+# ✅ 載入多個預訓練模型
+def load_models():
+    # ResNet50模型
     resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
     resnet_classifier = Sequential([
         resnet_model,
         Dense(1, activation='sigmoid')
     ])
-
-    # 解凍 ResNet50 模型的最後幾層進行微調
-    for layer in resnet_model.layers[:-4]:  # 保留 ResNet50 頂層，解凍其餘部分
-        layer.trainable = False
-    for layer in resnet_model.layers[-4:]:  # 微調最後幾層
-        layer.trainable = True
-
     resnet_classifier.compile(optimizer=Adam(learning_rate=0.0001), loss='binary_crossentropy', metrics=['accuracy'])
-    print("ResNet50 模型已載入並微調")
-except Exception as e:
-    print(f"ResNet50 載入錯誤：{e}")
-    resnet_classifier = None
+    
+    # EfficientNetB0模型
+    efficientnet_model = EfficientNetB0(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
+    efficientnet_classifier = Sequential([
+        efficientnet_model,
+        Dense(1, activation='sigmoid')
+    ])
+    efficientnet_classifier.compile(optimizer=Adam(learning_rate=0.0001), loss='binary_crossentropy', metrics=['accuracy'])
+
+    # Xception模型
+    xception_model = Xception(weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3))
+    xception_classifier = Sequential([
+        xception_model,
+        Dense(1, activation='sigmoid')
+    ])
+    xception_classifier.compile(optimizer=Adam(learning_rate=0.0001), loss='binary_crossentropy', metrics=['accuracy'])
+    
+    return resnet_classifier, efficientnet_classifier, xception_classifier
 
 # ✅ MTCNN 初始化
 detector = MTCNN()
@@ -86,7 +95,7 @@ def center_crop(img, target_size=(224, 224)):
     return img.crop((left, top, left + new_width, top + new_height))
 
 # ✅ 預處理
-def preprocess_for_resnet(pil_img):
+def preprocess_for_model(pil_img):
     img = center_crop(pil_img, (224, 224))
     img_array = np.array(img)
 
@@ -99,34 +108,32 @@ def preprocess_for_resnet(pil_img):
     return np.expand_dims(img_array, axis=0)
 
 # ✅ 預測
-def predict_with_resnet(img):
-    resnet_input = preprocess_for_resnet(img)
-    pred = resnet_classifier.predict(resnet_input, verbose=0)[0][0]
-    label = "Deepfake" if pred > 0.5 else "Real"
-    return label, pred
+def predict_with_ensemble(img, models):
+    pred_resnet = models[0].predict(preprocess_for_model(img), verbose=0)[0][0]
+    pred_efficientnet = models[1].predict(preprocess_for_model(img), verbose=0)[0][0]
+    pred_xception = models[2].predict(preprocess_for_model(img), verbose=0)[0][0]
+    
+    # 投票或加權平均（在此使用簡單的投票方法）
+    pred_avg = np.mean([pred_resnet, pred_efficientnet, pred_xception])
+    
+    label = "Deepfake" if pred_avg > 0.5 else "Real"
+    confidence = pred_avg
+    return label, confidence
 
 # ✅ 顯示預測
-def show_prediction(img):
-    label, confidence = predict_with_resnet(img)
+def show_prediction(img, models):
+    label, confidence = predict_with_ensemble(img, models)
     st.image(img, caption="輸入圖片", use_container_width=True)
-    st.subheader(f"ResNet50 判斷：**{label}**（信心度：{confidence:.2%}）")
-
-# ✅ 資料增強設置（如果需要進行訓練）
-datagen = ImageDataGenerator(
-    rotation_range=40,
-    width_shift_range=0.2,
-    height_shift_range=0.2,
-    shear_range=0.2,
-    zoom_range=0.2,
-    horizontal_flip=True,
-    fill_mode='nearest'
-)
+    st.subheader(f"集成學習結果：**{label}**（信心度：{confidence:.2%}）")
 
 # ✅ Streamlit UI
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
 st.title("🧠 Deepfake 圖片偵測器")
 
 tab1, tab2 = st.tabs(["🖼️ 圖片偵測", "🎥 影片偵測"])
+
+# ✅ 載入模型
+models = load_models()
 
 # ✅ 圖片偵測
 with tab1:
@@ -139,10 +146,10 @@ with tab1:
         face_img = extract_face(pil_img)
         if face_img:
             st.image(face_img, caption="偵測到人臉", width=300)
-            show_prediction(face_img)
+            show_prediction(face_img, models)
         else:
             st.info("⚠️ 未偵測到人臉，將使用整張圖片進行預測")
-            show_prediction(pil_img)
+            show_prediction(pil_img, models)
 
 # ✅ 影片偵測（僅擷取前幾幀）
 with tab2:
@@ -172,7 +179,7 @@ with tab2:
                 face_img = extract_face(pil_frame)
                 if face_img:
                     st.image(face_img, caption=f"第 {frame_idx} 幀偵測到人臉", width=300)
-                    show_prediction(face_img)
+                    show_prediction(face_img, models)
                     shown = True
             frame_idx += 1
 
