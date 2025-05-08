@@ -9,4 +9,3 @@ requests
 scikit-learn
 xgboost
 matplotlib
-pywt
