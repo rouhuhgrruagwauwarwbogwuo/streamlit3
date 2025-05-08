@@ -186,12 +186,13 @@ with tab2:
                     st.subheader(f"預測結果：**{label}**")
                     frame_confidences.append(confidence)
                     shown = True
-                    if len(frame_confidences) == 10:
-                        avg_confidence = np.mean(frame_confidences)
-                        st.markdown(f"影片總體信心分數：**{avg_confidence:.2f}**")
-                        break
+
             frame_idx += 1
 
         cap.release()
-if not shown:
-    st.warning("未能處理影片中的任何幀，請確認影片格式及內容。")
+
+        if shown:
+            avg_confidence = np.mean(frame_confidences)
+            st.markdown(f"影片總體信心分數：**{avg_confidence:.2f}**")
+        else:
+            st.warning("未能處理影片中的任何幀，請確認影片格式及內容。")
