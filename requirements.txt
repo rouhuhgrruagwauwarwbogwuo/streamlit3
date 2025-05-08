@@ -3,4 +3,4 @@ tensorflow
 retina-face
 gdown
 Pillow
-opencv-python-headless==4.5.5.64
+opencv-python-headless
