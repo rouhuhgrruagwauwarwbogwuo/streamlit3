@@ -1,8 +1,8 @@
-opencv-python-headless
 streamlit
 tensorflow
 keras
 mtcnn
+opencv-python-headless
 Pillow
 numpy
 requests
