@@ -13,7 +13,7 @@ from tensorflow.keras.applications.efficientnet import preprocess_input as prepr
 from tensorflow.keras.applications.xception import preprocess_input as preprocess_xception
 from mtcnn import MTCNN
 import matplotlib.pyplot as plt
-from tensorflow.keras.preprocessing.image import ImageDataGenerator  # Updated import
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 # 初始化 MTCNN
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -182,19 +182,16 @@ with tab2:
                 pil_frame = Image.fromarray(rgb)
                 face_img = extract_face(pil_frame)
                 if face_img:
-                    st.image(face_img, caption=f"第 {frame_idx} 幀人臉", width=300)
-                    label, confidence = stacking_predict(models, face_img, threshold=0.6)  # 調整閾值
-                    st.subheader(f"預測結果：**{label}**")
-                    frame_confidences.append(confidence)
-                    shown = True
-                    if len(frame_confidences) == 10:
-                        avg_confidence = np.mean(frame_confidences)
-                        st.markdown(f"影片平均信心分數：**{avg_confidence:.2f}**")
+                    label, confidence = stacking_predict(models, face_img)
+                    frame_confidences.append((label, confidence))
+                    if not shown:
+                        st.image(pil_frame, caption=f"幀 {frame_idx+1}")
+                        st.write(f"信心分數：{confidence:.2f}")
+                        st.write(f"預測結果：{label}")
+                        shown = True
                 else:
-                    frame_idx += 1
-                    continue
+                    frame_confidences.append(("No face", 0.0))
             frame_idx += 1
 
         cap.release()
-        if not shown:
-            st.warning("未偵測到有效的人臉，無法進行預測。")
+        st.write(f"分析結果：{frame_confidences}")
