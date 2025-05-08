@@ -13,6 +13,7 @@ from tensorflow.keras.applications.efficientnet import preprocess_input as prepr
 from tensorflow.keras.applications.xception import preprocess_input as preprocess_xception
 from mtcnn import MTCNN
 import matplotlib.pyplot as plt
+from tensorflow.keras.preprocessing.image import ImageDataGenerator  # Updated import
 
 # 初始化 MTCNN
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -85,17 +86,11 @@ def apply_clahe_sharpen(img):
     sharpened = cv2.addWeighted(img_clahe, 1.5, blurred, -0.5, 0)
     return Image.fromarray(sharpened)
 
-# Gamma 校正
-def gamma_correction(img, gamma=1.2):
-    img_np = np.array(img) / 255.0
-    corrected = np.power(img_np, gamma)
-    return Image.fromarray(np.uint8(corrected * 255))
-
 # 預處理圖像
 def preprocess_image(img, model_name):
-    img = apply_clahe_sharpen(img)
-    img = high_pass_filter(img)
-    img = gamma_correction(img, gamma=1.2)  # 新增 gamma 修正
+    img = apply_clahe_sharpen(img)  # 預處理優化加入此行
+    img = high_pass_filter(img)  # 加入高通濾波
+
     if model_name == 'Xception':
         img = img.resize((299, 299))
         img_array = np.array(img).astype(np.float32)
@@ -114,25 +109,22 @@ def predict_model(models, img):
     predictions = []
     for name, model in models.items():
         input_data = preprocess_image(img, name)
+        # 確保維度正確 (1, 高, 寬, 通道數)
         input_data = np.expand_dims(input_data, axis=0)  # 增加 batch size 維度
         prediction = model.predict(input_data, verbose=0)
         predictions.append(prediction[0][0])  # 取得模型預測結果
     return predictions
 
-# 集成預測（簡單加權平均）
-def stacking_predict(models, img, threshold=0.6):
+# 集成預測（簡單平均）
+def stacking_predict(models, img, threshold=0.5):
     preds = predict_model(models, img)
-    # 自訂模型加權平均（你可依實驗結果調整）
-    weighted_avg = (
-        preds[0] * 0.2 +  # ResNet50
-        preds[1] * 0.3 +  # EfficientNet
-        preds[2] * 0.5    # Xception
-    )
-    return ("Deepfake" if weighted_avg > threshold else "Real", weighted_avg)
+    avg = np.mean(preds)  # 取平均值作為最終預測結果
+    label = "Deepfake" if avg > threshold else "Real"
+    return label, avg
 
 # 顯示預測結果
-def show_prediction(img, models):
-    label, confidence = stacking_predict(models, img)
+def show_prediction(img, models, threshold=0.5):
+    label, confidence = stacking_predict(models, img, threshold)
     st.image(img, caption="輸入圖像", use_container_width=True)
     st.subheader(f"預測結果：**{label}**")
     st.markdown(f"信心分數：**{confidence:.2f}**")
@@ -159,10 +151,10 @@ with tab1:
         face_img = extract_face(pil_img)
         if face_img:
             st.image(face_img, caption="偵測到人臉", width=300)
-            show_prediction(face_img, models)
+            show_prediction(face_img, models, threshold=0.6)  # 調整閾值
         else:
             st.info("⚠️ 沒偵測到人臉，使用整張圖像預測")
-            show_prediction(pil_img, models)
+            show_prediction(pil_img, models, threshold=0.6)  # 調整閾值
 
 with tab2:
     st.header("影片偵測（處理前幾幀）")
@@ -176,9 +168,9 @@ with tab2:
         st.info("🎬 正在分析影片...（取前 10 幀）")
         cap = cv2.VideoCapture(video_path)
         frame_idx = 0
+        shown = False
         max_frames = 10
         frame_confidences = []
-        shown = False  # 確保每次都初始化
 
         while cap.isOpened() and frame_idx < max_frames:
             ret, frame = cap.read()
@@ -191,18 +183,18 @@ with tab2:
                 face_img = extract_face(pil_frame)
                 if face_img:
                     st.image(face_img, caption=f"第 {frame_idx} 幀人臉", width=300)
-                    label, confidence = stacking_predict(models, face_img)
+                    label, confidence = stacking_predict(models, face_img, threshold=0.6)  # 調整閾值
                     st.subheader(f"預測結果：**{label}**")
                     frame_confidences.append(confidence)
                     shown = True
                     if len(frame_confidences) == 10:
                         avg_confidence = np.mean(frame_confidences)
-                        st.markdown(f"影片總體信心分數：**{avg_confidence:.2f}**")
-                        break
+                        st.markdown(f"影片平均信心分數：**{avg_confidence:.2f}**")
+                else:
+                    frame_idx += 1
+                    continue
             frame_idx += 1
 
         cap.release()
-
-        # 顯示影片分析結束後的結果
         if not shown:
-            st.warning("未能處理影片中的任何幀，請確認影片格式及內容。")
+            st.warning("未偵測到有效的人臉，無法進行預測。")
