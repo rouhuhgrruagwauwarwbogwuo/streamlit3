@@ -1,7 +1,6 @@
-streamlit
-tensorflow
-retina-face
-gdown
-Pillow
 opencv-python-headless
-mtcnn
+tensorflow
+Pillow
+numpy
+matplotlib
+streamlit
