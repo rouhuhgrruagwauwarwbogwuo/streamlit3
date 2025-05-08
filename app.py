@@ -62,6 +62,11 @@ def apply_clahe_sharpen(img):
     sharpened = cv2.addWeighted(img_clahe, 1.5, blurred, -0.5, 0)
     return Image.fromarray(sharpened)
 
+# 高頻濾波處理
+def high_pass_filter(img):
+    kernel = np.array([[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]])  # Sobel kernel
+    return cv2.filter2D(img, -1, kernel)
+
 # 預處理圖像
 def preprocess_image(img, model_name):
     img = apply_clahe_sharpen(img)  # 預處理優化加入此行
@@ -120,6 +125,10 @@ with tab1:
         pil_img = Image.open(uploaded_image).convert("RGB")
         st.image(pil_img, caption="原始圖像", use_container_width=True)
 
+        # 高頻濾波處理
+        filtered_img = high_pass_filter(np.array(pil_img))
+        st.image(filtered_img, caption="高頻濾波後的圖像", use_container_width=True)
+
         face_img = extract_face(pil_img)
         if face_img:
             st.image(face_img, caption="偵測到人臉", width=300)
@@ -152,6 +161,11 @@ with tab2:
             if frame_idx % 3 == 0:
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_frame = Image.fromarray(rgb)
+
+                # 高頻濾波處理
+                filtered_frame = high_pass_filter(rgb)
+                st.image(filtered_frame, caption=f"第 {frame_idx} 幀 高頻濾波後", width=300)
+
                 face_img = extract_face(pil_frame)
                 if face_img:
                     st.image(face_img, caption=f"第 {frame_idx} 幀人臉", width=300)
