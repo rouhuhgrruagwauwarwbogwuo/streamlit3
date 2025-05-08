@@ -6,3 +6,4 @@ opencv-python-headless
 Pillow
 numpy
 requests
+scikit-learn
