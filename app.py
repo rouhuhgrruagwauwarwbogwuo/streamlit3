@@ -12,6 +12,7 @@ from keras.applications.resnet50 import preprocess_input as preprocess_resnet
 from keras.applications.efficientnet import preprocess_input as preprocess_efficientnet
 from keras.applications.xception import preprocess_input as preprocess_xception
 from mtcnn import MTCNN
+import matplotlib.pyplot as plt
 
 # 初始化 MTCNN
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -46,8 +47,25 @@ def extract_face(pil_img):
         return Image.fromarray(face)
     return None
 
+# 預處理優化：CLAHE + 銳化
+def apply_clahe_sharpen(img):
+    img_np = np.array(img)
+    lab = cv2.cvtColor(img_np, cv2.COLOR_RGB2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    cl = clahe.apply(l)
+    lab = cv2.merge((cl, a, b))
+    img_clahe = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+
+    # 銳化
+    blurred = cv2.GaussianBlur(img_clahe, (0, 0), 3)
+    sharpened = cv2.addWeighted(img_clahe, 1.5, blurred, -0.5, 0)
+    return Image.fromarray(sharpened)
+
 # 預處理圖像
 def preprocess_image(img, model_name):
+    img = apply_clahe_sharpen(img)  # 預處理優化加入此行
+
     if model_name == 'Xception':
         img = img.resize((299, 299))
         img_array = np.array(img).astype(np.float32)
@@ -74,13 +92,22 @@ def predict_model(models, img):
 def stacking_predict(models, img):
     preds = predict_model(models, img)
     avg = np.mean(preds)
-    return "Deepfake" if avg > 0.5 else "Real"
+    return "Deepfake" if avg > 0.5 else "Real", avg
 
 # 顯示預測結果
 def show_prediction(img, models):
-    label = stacking_predict(models, img)
+    label, confidence = stacking_predict(models, img)
     st.image(img, caption="輸入圖像", use_container_width=True)
     st.subheader(f"預測結果：**{label}**")
+    st.markdown(f"信心分數：**{confidence:.2f}**")
+
+    # 顯示信心分數條
+    fig, ax = plt.subplots(figsize=(6, 1))
+    ax.barh([0], confidence, color='green' if label == "Real" else 'red')
+    ax.set_xlim(0, 1)
+    ax.set_yticks([])
+    ax.set_xlabel('信心分數')
+    st.pyplot(fig)
 
 # UI Tab
 models = load_models()
@@ -115,6 +142,7 @@ with tab2:
         frame_idx = 0
         shown = False
         max_frames = 10
+        frame_confidences = []
 
         while cap.isOpened() and frame_idx < max_frames:
             ret, frame = cap.read()
@@ -127,10 +155,14 @@ with tab2:
                 face_img = extract_face(pil_frame)
                 if face_img:
                     st.image(face_img, caption=f"第 {frame_idx} 幀人臉", width=300)
-                    label = stacking_predict(models, face_img)
+                    label, confidence = stacking_predict(models, face_img)
                     st.subheader(f"預測結果：**{label}**")
+                    frame_confidences.append(confidence)
                     shown = True
-                    break
+                    if len(frame_confidences) == 10:
+                        avg_confidence = np.mean(frame_confidences)
+                        st.markdown(f"影片總體信心分數：**{avg_confidence:.2f}**")
+                        break
             frame_idx += 1
 
         cap.release()
