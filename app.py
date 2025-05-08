@@ -5,15 +5,15 @@ import requests
 from PIL import Image
 import cv2
 import tempfile
-from keras.applications import ResNet50, EfficientNetB0, Xception
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.applications.resnet50 import preprocess_input as preprocess_resnet
-from keras.applications.efficientnet import preprocess_input as preprocess_efficientnet
-from keras.applications.xception import preprocess_input as preprocess_xception
+from tensorflow.keras.applications import ResNet50, EfficientNetB0, Xception
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.applications.resnet50 import preprocess_input as preprocess_resnet
+from tensorflow.keras.applications.efficientnet import preprocess_input as preprocess_efficientnet
+from tensorflow.keras.applications.xception import preprocess_input as preprocess_xception
 from mtcnn import MTCNN
 import matplotlib.pyplot as plt
-from keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 # 初始化 MTCNN
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -165,9 +165,9 @@ with tab2:
         st.info("🎬 正在分析影片...（取前 10 幀）")
         cap = cv2.VideoCapture(video_path)
         frame_idx = 0
-        frame_confidences = []
+        shown = False
         max_frames = 10
-        shown = False  # Initialize shown outside the loop
+        frame_confidences = []
 
         while cap.isOpened() and frame_idx < max_frames:
             ret, frame = cap.read()
@@ -183,7 +183,7 @@ with tab2:
                     label, confidence = stacking_predict(models, face_img)
                     st.subheader(f"預測結果：**{label}**")
                     frame_confidences.append(confidence)
-                    shown = True  # Update shown when a frame is processed
+                    shown = True
                     if len(frame_confidences) == 10:
                         avg_confidence = np.mean(frame_confidences)
                         st.markdown(f"影片總體信心分數：**{avg_confidence:.2f}**")
@@ -191,6 +191,5 @@ with tab2:
             frame_idx += 1
 
         cap.release()
-
-        if not shown:  # Check if no frames with faces were shown
-            st.warning("⚠️ 沒有偵測到人臉，無法進行影片分析")
+if not shown:
+    st.warning("⚠️ 沒有偵測到人臉，無法進行影片分析")
