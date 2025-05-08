@@ -100,12 +100,15 @@ def stacking_predict(models, img):
     
     # 確保 predictions 是一維陣列，並轉換為 2D 陣列（每個模型一行）
     stacked_predictions = np.array(predictions).reshape(1, -1)  # (1, n_models)
+    print("Stacked predictions:", stacked_predictions)  # 調試用
 
     # 設定每個預測結果的標籤（1表示Deepfake，0表示Real）
     labels = [1 if p > 0.5 else 0 for p in predictions]
+    print("Labels:", labels)  # 調試用
     
     # 這邊的 labels 是一維陣列 (n_samples,)
     labels = np.array(labels).reshape(-1, 1)  # 確保 labels 是二維陣列（n_samples, 1）
+    print("Reshaped labels:", labels)  # 調試用
 
     # 使用邏輯回歸進行預測融合
     logistic_model = LogisticRegression()
@@ -113,6 +116,7 @@ def stacking_predict(models, img):
     try:
         logistic_model.fit(stacked_predictions, labels)
         final_prediction = logistic_model.predict(stacked_predictions)[0]
+        print("Final prediction:", final_prediction)  # 調試用
         return "Deepfake" if final_prediction == 1 else "Real"
     except ValueError as e:
         print(f"訓練邏輯回歸模型出錯：{e}")
