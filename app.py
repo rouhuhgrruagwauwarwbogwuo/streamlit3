@@ -94,10 +94,18 @@ def predict_model(models, img):
 # ✅ Stacking 預測（集成學習）
 def stacking_predict(models, img):
     predictions = predict_model(models, img)
-    # 使用簡單的邏輯回歸來融合預測結果
+    
+    # 確保 predictions 是一維陣列，並轉換為 2D 陣列（每個模型一行）
     stacked_predictions = np.array(predictions).reshape(-1, 1)
+
+    # 設定每個預測結果的標籤（1表示Deepfake，0表示Real）
+    labels = [1 if p > 0.5 else 0 for p in predictions]
+    
+    # 使用邏輯回歸進行預測融合
     logistic_model = LogisticRegression()
-    logistic_model.fit(stacked_predictions, [1 if p > 0.5 else 0 for p in predictions])
+    logistic_model.fit(stacked_predictions, labels)
+
+    # 輸出最終預測
     final_prediction = logistic_model.predict(stacked_predictions)[0]
     return "Deepfake" if final_prediction == 1 else "Real"
 
