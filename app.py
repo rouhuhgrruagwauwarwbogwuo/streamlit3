@@ -13,7 +13,6 @@ from tensorflow.keras.applications.efficientnet import preprocess_input as prepr
 from tensorflow.keras.applications.xception import preprocess_input as preprocess_xception
 from mtcnn import MTCNN
 import matplotlib.pyplot as plt
-from tensorflow.keras.preprocessing.image import ImageDataGenerator  # Updated import
 
 # 初始化 MTCNN
 st.set_page_config(page_title="Deepfake 偵測器", layout="wide")
@@ -51,27 +50,11 @@ def extract_face(pil_img):
 # 高通濾波 (強化邊緣)
 def high_pass_filter(img):
     img_np = np.array(img)
-    kernel = np.array([[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]])  # 高通濾波核
+    kernel = np.array([[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]])
     filtered_img = cv2.filter2D(img_np, -1, kernel)
     return Image.fromarray(filtered_img)
 
-# 增加數據增強
-def augment_image(img):
-    datagen = ImageDataGenerator(
-        rotation_range=30,  # 隨機旋轉
-        width_shift_range=0.2,  # 隨機水平平移
-        height_shift_range=0.2,  # 隨機垂直平移
-        shear_range=0.2,  # 隨機剪切變換
-        zoom_range=0.2,  # 隨機縮放
-        horizontal_flip=True,  # 隨機水平翻轉
-        fill_mode='nearest'  # 填補模式
-    )
-    
-    img_array = np.array(img).reshape((1, ) + np.array(img).shape)
-    augmented_img = next(datagen.flow(img_array, batch_size=1))
-    return Image.fromarray(augmented_img[0].astype(np.uint8))
-
-# 預處理優化：CLAHE + 銳化
+# CLAHE + 銳化
 def apply_clahe_sharpen(img):
     img_np = np.array(img)
     lab = cv2.cvtColor(img_np, cv2.COLOR_RGB2LAB)
@@ -80,16 +63,14 @@ def apply_clahe_sharpen(img):
     cl = clahe.apply(l)
     lab = cv2.merge((cl, a, b))
     img_clahe = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
-
-    # 銳化
     blurred = cv2.GaussianBlur(img_clahe, (0, 0), 3)
     sharpened = cv2.addWeighted(img_clahe, 1.5, blurred, -0.5, 0)
     return Image.fromarray(sharpened)
 
 # 預處理圖像
 def preprocess_image(img, model_name):
-    img = apply_clahe_sharpen(img)  # 預處理優化加入此行
-    img = high_pass_filter(img)  # 加入高通濾波
+    img = apply_clahe_sharpen(img)
+    img = high_pass_filter(img)
 
     if model_name == 'Xception':
         img = img.resize((299, 299))
@@ -109,16 +90,15 @@ def predict_model(models, img):
     predictions = []
     for name, model in models.items():
         input_data = preprocess_image(img, name)
-        # 確保維度正確 (1, 高, 寬, 通道數)
-        input_data = np.expand_dims(input_data, axis=0)  # 增加 batch size 維度
+        input_data = np.expand_dims(input_data, axis=0)
         prediction = model.predict(input_data, verbose=0)
-        predictions.append(prediction[0][0])  # 取得模型預測結果
+        predictions.append(prediction[0][0])
     return predictions
 
 # 集成預測（簡單平均）
 def stacking_predict(models, img):
     preds = predict_model(models, img)
-    avg = np.mean(preds)  # 取平均值作為最終預測結果
+    avg = np.mean(preds)
     return "Deepfake" if avg > 0.5 else "Real", avg
 
 # 顯示預測結果
@@ -128,7 +108,6 @@ def show_prediction(img, models):
     st.subheader(f"預測結果：**{label}**")
     st.markdown(f"信心分數：**{confidence:.2f}**")
 
-    # 顯示信心分數條
     fig, ax = plt.subplots(figsize=(6, 1))
     ax.barh([0], confidence, color='green' if label == "Real" else 'red')
     ax.set_xlim(0, 1)
