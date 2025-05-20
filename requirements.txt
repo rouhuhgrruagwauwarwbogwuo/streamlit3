@@ -1,7 +1,6 @@
+streamlit==1.24.1
+numpy
 opencv-python-headless
 tensorflow
-Pillow
-numpy
+pillow
 matplotlib
-streamlit
-mtcnn
