@@ -1,6 +1,7 @@
-streamlit
-numpy
 opencv-python-headless
 tensorflow
-pillow
+Pillow
+numpy
 matplotlib
+streamlit
+mtcnn
