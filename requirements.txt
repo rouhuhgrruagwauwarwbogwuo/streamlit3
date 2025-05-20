@@ -1,6 +1,8 @@
 streamlit==1.22.0
 tensorflow-cpu==2.11.0
-numpy==1.24.3
-opencv-python-headless==4.7.0.72
-Pillow==9.5.0
-matplotlib==3.7.1
+mtcnn
+opencv-python
+Pillow
+numpy
+scikit-learn
+matplotlib
