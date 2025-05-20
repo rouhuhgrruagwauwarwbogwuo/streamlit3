@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from keras.applications import ResNet50, EfficientNetB0, Xception
 from keras.models import Model
 from keras.layers import Dense, GlobalAveragePooling2D
+import tensorflow as tf
 from mtcnn.mtcnn import MTCNN
 
 st.set_page_config(page_title="Deepfake 偵測系統", layout="wide")
@@ -28,12 +29,9 @@ def build_model(base_model):
     model = Model(inputs=base_model.input, outputs=predictions)
     return model
 
-# 載入預訓練模型（注意：你需要自行載入訓練好的權重）
 resnet_model = build_model(ResNet50(weights="imagenet", include_top=False))
 efficientnet_model = build_model(EfficientNetB0(weights="imagenet", include_top=False))
 xception_model = build_model(Xception(weights="imagenet", include_top=False))
-
-# 你可能需要用 model.load_weights(...) 載入你自己的模型權重，這邊省略
 
 # 人臉偵測（使用 MTCNN）
 def extract_face_mtcnn(pil_img):
@@ -81,7 +79,8 @@ def apply_high_pass_filter(img):
 # 預測
 def predict_with_ensemble(img):
     img = img.resize((224, 224))
-    img_array = np.array(img).astype(np.float32) / 255.0
+    img_array = np.array(img).astype(np.float32)
+    img_array = img_array / 255.0
     img_array = np.expand_dims(img_array, axis=0)
 
     pred1 = resnet_model.predict(img_array, verbose=0)[0][0]
@@ -127,12 +126,11 @@ if option == "圖片":
 elif option == "影片":
     uploaded_video = st.file_uploader("請上傳影片", type=["mp4", "mov", "avi"])
     if uploaded_video:
-        tfile = uploaded_video
-        cap = cv2.VideoCapture(tfile.name)
-        frame_count = 0
-        frame_confidences = []
-
         with st.spinner("影片處理中..."):
+            cap = cv2.VideoCapture(uploaded_video.name)
+            frame_count = 0
+            frame_confidences = []
+
             while True:
                 ret, frame = cap.read()
                 if not ret or frame_count >= 100:  # 最多處理 100 幀
@@ -148,15 +146,15 @@ elif option == "影片":
                         label, avg_pred, _ = predict_with_ensemble(final_img)
                         frame_confidences.append((label, avg_pred))
                 frame_count += 1
-        cap.release()
+            cap.release()
 
-        if not frame_confidences:
-            st.warning("⚠️ 無法在影片中偵測到人臉")
-        else:
-            deepfake_count = sum(1 for label, _ in frame_confidences if label == "Deepfake")
-            real_count = sum(1 for label, _ in frame_confidences if label == "Real")
-            final_label = "Deepfake" if deepfake_count > real_count else "Real"
-            avg_conf = np.mean([score for _, score in frame_confidences])
+            if not frame_confidences:
+                st.warning("⚠️ 無法在影片中偵測到人臉")
+            else:
+                deepfake_count = sum(1 for label, _ in frame_confidences if label == "Deepfake")
+                real_count = sum(1 for label, _ in frame_confidences if label == "Real")
+                final_label = "Deepfake" if deepfake_count > real_count else "Real"
+                avg_conf = np.mean([score for _, score in frame_confidences])
 
-            st.markdown(f"### 🎥 影片判斷結果：**{final_label}**")
-            st.write(f"平均信心分數：{avg_conf:.4f}")
+                st.markdown(f"### 🎥 影片判斷結果：**{final_label}**")
+                st.write(f"平均信心分數：{avg_conf:.4f}")
